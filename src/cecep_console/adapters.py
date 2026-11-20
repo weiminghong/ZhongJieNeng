@@ -46,4 +46,3 @@ def evaluate_predictions(actual: list[float], predicted: list[float]) -> dict:
             return predicted
 
     return module.ModelEvaluator().evaluate(StoredPredictions(), actual, actual)["metrics"]
-

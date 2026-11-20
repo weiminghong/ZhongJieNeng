@@ -72,4 +72,3 @@ def answer_question(question: str, payload: dict) -> dict:
         tools = ["generation_data"]
         link = "generation"
     return {"text": text, "context": context, "tools": tools, "link": link, "mode": "本地工具分析", "source": payload["source"]}
-

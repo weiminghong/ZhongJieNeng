@@ -83,4 +83,3 @@ def records(station_id: str, selected_date: str) -> tuple[dict, ...]:
             "correction_issued_at": selected_date + "T10:00:00+08:00" if corrected_available else None,
         })
     return tuple(rows)
-

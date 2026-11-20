@@ -4,4 +4,3 @@
 [submodule "vendor/ai-energy-trading-platform"]
 	path = vendor/ai-energy-trading-platform
 	url = https://github.com/yaoyaojiahan/ai-energy-trading-platform.git
-
