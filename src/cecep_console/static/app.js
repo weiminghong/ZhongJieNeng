@@ -224,6 +224,7 @@ async function loadData() {
   const requestId = ++state.request;
   $("#global-error").hidden = true;
   $("#refresh-button").disabled = true;
+  $("#export-button").disabled = true;
   $("#content").setAttribute("aria-busy", "true");
   try {
     const data = await fetchJSON(`/api/data?${filterParams()}`);
@@ -236,10 +237,12 @@ async function loadData() {
     if (requestId === state.request) {
       $("#global-error").textContent = `${error.message}。可点击“刷新数据”重试。`;
       $("#global-error").hidden = false;
+      $("#content").innerHTML = '<div class="loading">当前筛选数据尚未加载，请刷新重试。</div>';
     }
   } finally {
     if (requestId === state.request) {
       $("#refresh-button").disabled = false;
+      $("#export-button").disabled = !$("#global-error").hidden;
       $("#content").setAttribute("aria-busy", "false");
     }
   }
@@ -261,6 +264,7 @@ function exportCSV() {
 async function initialize() {
   try {
     state.context = await fetchJSON("/api/context");
+    $("#asof").textContent = `演示时钟 ${state.context.as_of.slice(5, 10)} ${state.context.as_of.slice(11, 16)}`;
     $("#station").innerHTML = state.context.stations.map((station) => `<option value="${station.id}">${station.name}</option>`).join("");
     $("#date").innerHTML = state.context.dates.map((date) => `<option value="${date}">${date}</option>`).join("");
     $("#date").value = state.context.default_date;
