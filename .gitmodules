@@ -1,0 +1,7 @@
+[submodule "vendor/solar-forecast"]
+	path = vendor/solar-forecast
+	url = https://github.com/tusharbeckham/solar-forecast.git
+[submodule "vendor/ai-energy-trading-platform"]
+	path = vendor/ai-energy-trading-platform
+	url = https://github.com/yaoyaojiahan/ai-energy-trading-platform.git
+

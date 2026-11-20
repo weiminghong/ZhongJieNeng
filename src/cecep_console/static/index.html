@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>中节能 · 光伏交易工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/plotly.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><span class="brand-symbol">中</span><span>中节能<span class="brand-sub">光伏交易工作台</span></span></a>
+    <p class="nav-group">业务分析</p>
+    <nav aria-label="业务导航">
+      <a href="#overview" data-page="overview"><span class="nav-mark">▦</span>运行总览</a>
+      <a href="#raw" data-page="raw"><span class="nav-mark">≡</span>原始数据</a>
+      <a href="#generation" data-page="generation"><span class="nav-mark">∿</span>发电预测</a>
+      <a href="#price" data-page="price"><span class="nav-mark">↗</span>电价与价差</a>
+      <a href="#analysis" data-page="analysis"><span class="nav-mark">⊙</span>偏差分析</a>
+      <a href="#agent" data-page="agent"><span class="nav-mark">✧</span>Agent 分析</a>
+    </nav>
+    <p class="nav-group">模型与迭代</p>
+    <nav aria-label="模型导航">
+      <a href="#training" data-page="training">模型训练<span class="nav-status">待接入</span></a>
+      <a href="#rsi" data-page="rsi">RSI 迭代<span class="nav-status">待接入</span></a>
+    </nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span>GB10 数据服务<span>DEMO / 业务展示原型</span><button id="about-button" type="button">开源组件与数据说明</button></div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar"><div class="breadcrumb">太阳能业务 <span>/</span> 浙江区域 <span>/</span> <span id="crumb">运行总览</span></div><div class="environment"><span class="demo-dot"></span>合成演示数据 <span class="divider">|</span> UTC+8</div></header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><h1 id="page-title">运行总览</h1><p id="page-description">查看场站出力、预测表现与重点时段。</p></div><button id="export-button" class="button secondary" type="button">导出当前数据</button></div>
+      <form id="filters" class="filterbar">
+        <label>场站<select id="station" name="station" aria-label="选择场站"></select></label>
+        <label>业务日期<select id="date" name="date" aria-label="选择业务日期"></select></label>
+        <label class="check-label"><input type="checkbox" id="daylight">仅白昼时段</label>
+        <span id="context-label" class="filter-context"></span>
+        <button id="refresh-button" class="button secondary" type="submit">刷新数据</button>
+      </form>
+      <div id="global-error" role="alert" hidden></div>
+      <div id="content" aria-live="polite" aria-busy="true"><div class="loading">正在读取场站数据…</div></div>
+      <footer>所有数值与预测曲线均为合成演示 · 功率 MW / 电量 MWh / 电价 元/MWh · 模型版本与发布时间可在预测页查看</footer>
+    </main>
+  </div>
+  <dialog id="about-dialog"><div class="dialog-heading"><h2>开源组件与数据说明</h2><button id="close-dialog" class="button secondary" type="button">关闭</button></div><div class="dialog-body">
+    <p>本原型在 GB10 本地提供页面、数据与图表资源。默认场站配置采用申报书列示的容量，所有时序数据、预测和缺失事件均为合成场景。</p>
+    <h3>已运行的代码集成</h3>
+    <p><a href="https://github.com/tusharbeckham/solar-forecast" target="_blank" rel="noreferrer">solar-forecast</a> 的晴空物理模型用于构造场站物理出力基线，时间统一为 Asia/Shanghai。</p>
+    <p><a href="https://github.com/yaoyaojiahan/ai-energy-trading-platform" target="_blank" rel="noreferrer">AI Energy Trading Platform</a> 的 ModelEvaluator 用于计算真实配对时段的 MAE 和 RMSE。图表组织借鉴其预测、市场与偏差分析结构。</p>
+    <p>上述仓库固定为 Git 子模块。solar-forecast 使用 MIT 许可证，AI Energy Trading Platform 的 README 声明 MIT。Plotly 图表在服务器本地加载，保留其许可说明。</p>
+    <h3>当前能力边界</h3><p>Agent 分析通过本地工具路由查询指标和数据，尚未连接大语言模型。模型训练与 RSI 页展示建设状态。10 号服务器数据和模型因目录权限尚未迁移。</p>
+  </div></dialog>
+</body>
+</html>
