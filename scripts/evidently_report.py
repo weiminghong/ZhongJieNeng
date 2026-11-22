@@ -34,7 +34,7 @@ def load_data(directory: Path) -> pd.DataFrame:
 
 
 def export_report(snapshot, output: Path, name: str, note: str):
-    """仅增加数据口径说明，报告内容和交互保留 Evidently 原样。"""
+    """增加中文显示层和数据口径说明，保留原始指标及报告交互。"""
     path = output / f"{name}.html"
     snapshot.save_html(str(path))
     original = path.read_text(encoding="utf-8")
@@ -46,7 +46,12 @@ def export_report(snapshot, output: Path, name: str, note: str):
     start = original.find(">", original.lower().find("<body")) + 1
     if start <= 0:
         raise ValueError("Evidently HTML 缺少 body，无法标注来源")
-    path.write_text(original[:start] + banner + original[start:], encoding="utf-8")
+    localized = original[:start] + banner + original[start:]
+    title = {"quality": "数据质量与分布", "drift": "影响因素分布变化", "regression": "日发电量预测表现"}[name]
+    translation = (ROOT / "scripts/evidently_zh.js").read_text(encoding="utf-8")
+    localized = localized.replace("</head>", f"<title>{title} · Evidently</title></head>")
+    localized = localized.replace("</body>", f"<script>{translation}</script></body>")
+    path.write_text(localized, encoding="utf-8")
     snapshot.save_json(str(output / f"{name}.json"))
 
 
@@ -72,7 +77,7 @@ def main():
         raise ValueError("参考期或当前期样本不足")
     current_dataset = Dataset.from_pandas(current, data_definition=definition)
     reference_dataset = Dataset.from_pandas(reference, data_definition=definition)
-    common = "上游 Station Alpha 模拟数据；日级记录。参考期 2025 年 1–2 月，当前期 3 月。"
+    common = "上游阿尔法示例电站模拟数据；日级记录。参考期 2025 年 1–2 月，当前期 3 月。"
     reports = [
         ("quality", DataSummaryPreset(), "原始缺失与分布检视；未人为注入异常。"),
         ("drift", DataDriftPreset(), "跨季节比较中的分布变化可能来自季节性；漂移不等于模型失效。"),
@@ -100,7 +105,7 @@ def main():
     index = f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Evidently 试用报告</title>
 <body style="max-width:900px;margin:48px auto;font:16px/1.9 sans-serif;padding:0 24px">
 <h1>Evidently 试用报告</h1><p>{html.escape(common)}</p><ul>{links}</ul>
-<p>当前期有效配对 {len(valid)} 天；MAE {metrics['mae_mwh']:.2f} MWh；RMSE {metrics['rmse_mwh']:.2f} MWh。</p>
+<p>当前期有效配对 {len(valid)} 天；平均绝对误差（MAE）{metrics['mae_mwh']:.2f} MWh；均方根误差（RMSE）{metrics['rmse_mwh']:.2f} MWh。</p>
 <p>这组报告用于体验 Evidently 的数据和模型监测界面。它不自动确定影响因素，不执行模型训练或 Agent 自进化。</p>
 <a href="manifest.json">数据来源与独立复算指标</a></body></html>'''
     (args.output_dir / "index.html").write_text(index, encoding="utf-8")
