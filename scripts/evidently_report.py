@@ -47,6 +47,7 @@ def export_report(snapshot, output: Path, name: str, note: str):
     if start <= 0:
         raise ValueError("Evidently HTML 缺少 body，无法标注来源")
     localized = original[:start] + banner + original[start:]
+    localized = localized.replace('<html lang="en">', '<html lang="zh-CN">')
     title = {"quality": "数据质量与分布", "drift": "影响因素分布变化", "regression": "日发电量预测表现"}[name]
     translation = (ROOT / "scripts/evidently_zh.js").read_text(encoding="utf-8")
     localized = localized.replace("</head>", f"<title>{title} · Evidently</title></head>")

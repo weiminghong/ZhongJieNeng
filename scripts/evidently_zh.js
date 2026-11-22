@@ -158,8 +158,8 @@
       const text = translate(node.nodeValue);
       if (text !== node.nodeValue) node.nodeValue = text;
     }
-    for (const element of root.querySelectorAll("[title],[aria-label],[placeholder]")) {
-      for (const attribute of ["title", "aria-label", "placeholder"]) {
+    for (const element of root.querySelectorAll("[title],[aria-label],[placeholder],[data-title]")) {
+      for (const attribute of ["title", "aria-label", "placeholder", "data-title"]) {
         const value = element.getAttribute(attribute);
         if (value !== null) {
           const text = translate(value);
@@ -182,7 +182,7 @@
     });
   });
   function watch() {
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["title", "aria-label", "placeholder"] });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["title", "aria-label", "placeholder", "data-title"] });
   }
   localize(document.body);
   watch();
