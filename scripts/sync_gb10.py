@@ -75,7 +75,10 @@ def main():
         return output.strip()
 
     def python(code):
-        return run(f"cd {REMOTE} && .venv/bin/python -c " + shlex.quote(code))
+        return run(
+            f"cd {REMOTE} && PYTHONPATH={REMOTE}/src .venv/bin/python -c "
+            + shlex.quote(code)
+        )
 
     def http(path, body=None):
         start = time.perf_counter()
