@@ -1978,3 +1978,42 @@ pre {
 @media (min-width: 761px) and (max-width: 1100px) {
   .forecast-insights { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 分析工作台：深色导航与浅色图表区形成清晰的工作分区。 */
+@media (min-width: 761px) {
+  .app-shell { grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .app-switcher { min-height: 66px; padding: 8px 24px; background: var(--ce-color-on-surface); color: var(--ce-color-surface); border-bottom: 0; }
+  .brand { color: var(--ce-color-surface); min-width: 195px; }
+  .brand-icon { background: var(--ce-color-primary); color: var(--ce-color-on-primary); }
+  .brand-divider { border-color: var(--ce-color-data); }
+  .banner-facts { justify-content: flex-start; }
+  .start-banner-fact-card { border-color: var(--ce-color-data); background: transparent; color: var(--ce-color-surface); min-height: 46px; }
+  .start-banner-fact-card > svg { color: var(--ce-color-surface); }
+  .start-banner-fact-card > span { border-color: var(--ce-color-data); }
+  .start-banner-fact-card option { color: var(--ce-color-on-surface); background: var(--ce-color-surface); }
+  .start-banner-fact-card input { color-scheme: dark; }
+  .admin-center-sidebar { background: var(--ce-color-on-surface); color: var(--ce-color-surface); border-right: 0; padding: 24px 12px; }
+  .workspace-label { color: var(--ce-color-surface); padding-bottom: 24px; }
+  .workspace-label span, .sidebar-footer, .admin-center-section-toggle, .admin-center-subsection-list > button { color: var(--ce-color-outline); }
+  .admin-center-subsection-list > button { min-height: 48px; border-radius: 6px; }
+  .admin-center-subsection-list > button:hover { background: var(--ce-color-data); color: var(--ce-color-surface); }
+  .admin-center-subsection-list > button.is-active { background: var(--ce-color-primary); border-color: var(--ce-color-primary); color: var(--ce-color-on-primary); }
+  .admin-center-nav-icon, .is-active .admin-center-nav-icon { color: inherit; }
+  .sidebar-footer { border-color: var(--ce-color-data); }
+  .source-indicator { color: var(--ce-color-surface); }
+  .admin-center-header { background: var(--ce-color-background); border: 0; padding: 24px 28px 12px; }
+  .admin-center-page-icon { display: none; }
+  .admin-center-content { padding: 12px 28px 28px; }
+  .forecast-workspace .chart { height: 400px; }
+  .forecast-workspace .compact-chart { height: 250px; }
+  .presentation-metrics { background: transparent; border: 0; gap: 12px; overflow: visible; }
+  .presentation-metrics > * { background: var(--ce-color-surface); border: 1px solid var(--ce-color-outline); border-radius: 8px; padding: 18px 20px; }
+  .presentation-metrics > * + * { border-left: 1px solid var(--ce-color-outline); }
+  .presentation-metrics strong { font-size: 27px; }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .app-shell { grid-template-columns: 180px minmax(0, 1fr); }
+  .brand { min-width: 150px; }
+  .product-name { display: none; }
+  .admin-center-content { padding: 12px 16px 20px; }
+}
