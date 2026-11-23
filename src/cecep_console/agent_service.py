@@ -19,6 +19,8 @@ from .serving import (
     now,
 )
 from .trading import trading_overview
+from .model_runtime import run_model_inference, list_runtime_models
+from .proactive import forecast_sandbox
 
 
 def terms(text):
@@ -104,13 +106,13 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
     tool_inputs = {**scope, "cutoff_at": cutoff}
     calls = []
 
-    def call(name, operation):
+    def call(name, operation, extra_input=None):
         begin = now()
         output = operation()
         calls.append(
             {
                 "tool_name": name,
-                "input": tool_inputs,
+                "input": {**tool_inputs, **(extra_input or {})},
                 "output": output,
                 "started_at": begin,
                 "finished_at": now(),
@@ -131,7 +133,7 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
     comparisons = call(
         "compare_forecast_versions",
         lambda: compare_versions(store, station, day, cutoff, mode),
-    )
+    ) if re.search("比较|版本|预测|复盘|方案|合约", question) else []
     diagnoses = call(
         "diagnose_deviation",
         lambda: [
@@ -170,7 +172,7 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
             }
             for p in trading_overview(store, station, day, mode, cutoff)["plans"]
         ],
-    )
+    ) if re.search("收益|申报|交易|合约|考核|复盘|沙盘|方案|场景", question) else []
     quality = call(
         "inspect_data_quality",
         lambda: {
@@ -190,6 +192,45 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
             ),
         },
     )["chunks"]
+    inference = None
+    what_if = bool(re.search("云量|升温|限电|假设|如果|重算预测|场景推演", question))
+    runtime_id = None
+    registry_cutoff = cutoff if scope.get("mode") == "replay" else now()
+    if what_if or re.search("小模型|实时预测|实时推理", question):
+        available = [m for m in list_runtime_models(store, registry_cutoff) if m["source_mode"] == mode and m["task"] == "day_ahead_power"]
+        named = next((m for m in available if m["model_version_id"] in question or m["model_name"] in question), None)
+        if named and not named["ready"]:
+            raise ValueError(named["readiness_note"])
+        preferred = named or next((m for m in available if m["ready"] and m["effective_status"] == "production"), None)
+        runtime_id = preferred["model_version_id"] if preferred else None
+    if what_if or re.search("小模型|实时预测|实时推理", question):
+        inference = call("invoke_forecast_model", lambda: run_model_inference(
+            store, station_id=station, trading_date=day, cutoff_at=cutoff, source_mode=mode,
+            model_version_id=runtime_id, registry_cutoff=registry_cutoff), {"model_version_id": runtime_id})
+    if what_if:
+        overrides = {}
+        patterns = [("cloud_delta_pct", r"云量\s*([+-]?\d+(?:\.\d+)?)\s*%"),
+                    ("temp_delta_c", r"(?:升温|温度增加|温度)\s*([+-]?\d+(?:\.\d+)?)"),
+                    ("curtailment_cap_mw", r"限电(?:至|上限)?\s*([\d.]+)\s*(?:MW|兆瓦)")]
+        for key, pattern in patterns:
+            found = re.search(pattern, question, re.I)
+            if found:
+                overrides[key] = float(found[1])
+        if not overrides:
+            raise ValueError("请明确场景参数，例如云量+30%、升温3℃或限电至20MW")
+
+        def scenario_operation():
+            scenario = run_model_inference(store, station_id=station, trading_date=day,
+                                           cutoff_at=cutoff, source_mode=mode, overrides=overrides,
+                                           model_version_id=runtime_id, registry_cutoff=registry_cutoff)
+            try:
+                scenario["sandbox"] = forecast_sandbox(store, scope, cutoff, intervals, inference, scenario)
+            except ValueError as exc:
+                scenario["sandbox"] = {"status": "unavailable", "reason": str(exc)}
+            return scenario
+
+        inference = call("run_what_if_forecast", scenario_operation, {"model_version_id":runtime_id, "overrides":overrides})
+    artifacts = build_artifacts(calls)
     citations = [
         {"kind": "tool", "tool_name": c["tool_name"], "citation_id": f"tool-{i+1}"}
         for i, c in enumerate(calls)
@@ -224,6 +265,13 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
         if best:
             answer += f' 当前已结算配对范围内，{best["plan_name"]}净收益 {best["net_revenue_yuan"]:.2f} 元，结算 {best["settled_count"]} 个时段；不外推未来收益。'
     answer += " 知识检索命中 " + str(len(knowledge)) + " 个可见切片。"
+    if inference:
+        comparison = inference["metrics"]["online_comparison"]
+        answer += f' 小模型 {inference["model_name"]} 已实时输出 96 点。在 {comparison["sample_count"]} 个共同实测样本上，小模型 MAE {number(comparison["runtime_mae"])} MW；线上版本 MAE {number(comparison["online_mae"])} MW。拟合口径 {inference["trained_scope"]}，历史配对 {inference["training_pair_count"]} 条。'
+        if what_if:
+            sandbox = inference["sandbox"]
+            answer += " 场景参数 " + encoded(inference["overrides"]) + "。"
+            answer += (f' 同实测与电价申报沙盘净收益变化 {number(sandbox["delta_net_revenue_yuan"])} 元；考核项变化 {number(sandbox["delta_penalty_yuan"])} 元。' if sandbox.get("status") != "unavailable" else " 收益沙盘不可用：" + sandbox["reason"])
     llm_mode = "deterministic_tools_only"
     provider_error = None
     config = load_settings()
@@ -343,6 +391,7 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
         "answer_markdown": answer,
         "citations": citations,
         "tool_calls": calls,
+        "artifacts": artifacts,
         "llm_mode": llm_mode,
         "grounded_check_passed": not provider_error,
         "provider_error": provider_error,
@@ -372,4 +421,21 @@ def agent_history(store, station_id, source_mode="synthetic"):
                 (entry["agent_run_id"],),
             )
         ]
+        entry["artifacts"] = build_artifacts(entry["tool_calls"])
     return {"history": history}
+
+
+def build_artifacts(calls):
+    """Artifacts are exact views of audited tool outputs; history uses the same path."""
+    artifacts = []
+    for call in calls:
+        name, output = call["tool_name"], call["output"]
+        if name in {"invoke_forecast_model", "run_what_if_forecast"}:
+            artifacts.append(dict(type="forecast_overlay", tool_name=name, title="场景实时预测" if name == "run_what_if_forecast" else "小模型实时预测", data=output))
+            if "sandbox" in output:
+                artifacts.append(dict(type="revenue_compare", tool_name=name, title="What-If 同口径收益沙盘", data=output["sandbox"]))
+        elif name == "simulate_bidding_revenue":
+            artifacts.append(dict(type="revenue_compare", tool_name=name, title="申报方案收益", data=output))
+        elif name == "diagnose_deviation":
+            artifacts.append(dict(type="deviation_top", tool_name=name, title="重点偏差时段", data=output))
+    return artifacts

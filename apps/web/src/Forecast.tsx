@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ArrowUpRight, Crosshair, GitCompareArrows } from "lucide-react";
 import type { EChartsOption, LineSeriesOption } from "echarts";
-import type { Scope, Theme, Overview, Comparison, Interval } from "./types";
-import { fmt, time, stamp, query, useResource } from "./api";
+import type { Scope, Theme, Overview, Comparison, Interval, Inference, RuntimeModel } from "./types";
+import { fmt, time, stamp, query, useResource, request } from "./api";
 import ForecastAnalytics from "./ForecastAnalytics";
 import { Panel, Status, Segments } from "./components";
 import Chart, { baseOption, color } from "./Chart";
@@ -18,6 +18,9 @@ export default function Forecast({
   onRaw,
   revision,
   onDateChange,
+  overlay,
+  onOverlay,
+  onClearOverlay,
 }: {
   scope: Scope;
   data: Overview | null;
@@ -29,6 +32,9 @@ export default function Forecast({
   onRaw: () => void;
   revision: number;
   onDateChange: (date: string) => void;
+  overlay: Inference | null;
+  onOverlay: (data: Inference) => void;
+  onClearOverlay: () => void;
 }) {
   const compare = useResource<Comparison>(
     "/api/v1/workbench/compare?" + query(scope),
@@ -36,6 +42,20 @@ export default function Forecast({
   );
   const [view, setView] = useState("single");
   const [version, setVersion] = useState("2.0");
+  const [inferBusy, setInferBusy] = useState(false);
+  const [inferError, setInferError] = useState("");
+  const [runtimeId, setRuntimeId] = useState("");
+  const runtime = useResource<{ models: RuntimeModel[] }>("/api/v1/models/runtime", revision);
+  const context = JSON.stringify(scope);
+  const currentContext = useRef(context);
+  currentContext.current = context;
+  async function infer() {
+    const captured = context;
+    setInferBusy(true); setInferError("");
+    try { const result = await request<Inference>("/api/v1/models/predict", { ...scope, model_version_id: runtimeId || null }); if (captured === currentContext.current) onOverlay(result); }
+    catch (e) { if (captured === currentContext.current) setInferError((e as Error).message); }
+    finally { setInferBusy(false); }
+  }
   const intervals = data?.intervals || [];
   const chosen = compare.data?.versions.find((v) => v.version === version);
   const powerOption = useCallback((): EChartsOption => {
@@ -82,6 +102,7 @@ export default function Forecast({
           "日内修正 · 新增信息",
           "实测",
           "超±5%容量偏差",
+          ...(overlay ? ["小模型实时推理"] : []),
         ],
       },
       xAxis: {
@@ -101,6 +122,7 @@ export default function Forecast({
         },
       ],
       series: [
+        ...(overlay ? [{ name: "小模型实时推理", type: "line" as const, symbol: "none", data: intervals.map(r => overlay.points.find(p => p.interval_start === r.interval_start)?.predicted_mw ?? null), lineStyle: { color: color("error"), type: "dashed" as const, width: 2 }, itemStyle: { color: color("error") } }] : []),
         {
           name: "置信下界",
           type: "line",
@@ -173,7 +195,7 @@ export default function Forecast({
         },
       ],
     };
-  }, [intervals, version, chosen, capacity]);
+  }, [intervals, version, chosen, capacity, overlay]);
   const priceOption = useCallback((): EChartsOption => {
     const b = baseOption();
     return {
@@ -333,6 +355,7 @@ export default function Forecast({
                 </div>
               }
             >
+              {overlay && <div className="selection-bar"><span>{overlay.model_name} v{overlay.version} · {fmt(overlay.latency_ms, 0)} ms · {overlay.trained_scope}</span><button onClick={onClearOverlay}>清除叠加</button></div>}
               <Chart
                 label="实测、预测、日内修正、晴空基线和置信带的96点功率图"
                 option={powerOption}
@@ -374,6 +397,8 @@ export default function Forecast({
               subtitle="相同目标日、cutoff 与共同有效实测样本；演示场景版本未经模型训练"
               action={<GitCompareArrows size={19} className="text-primary" />}
             >
+              <div className="head-tools"><select aria-label="预测小模型运行时" value={runtimeId} onChange={e => setRuntimeId(e.target.value)}><option value="">内置 PIT 残差模型</option>{runtime.data?.models.filter(m => m.ready && m.source_mode === scope.source_mode && m.task === "day_ahead_power").map(m => <option key={m.model_version_id} value={m.model_version_id}>{m.model_name} v{m.version}</option>)}</select><button disabled={inferBusy} onClick={() => void infer()}>{inferBusy ? "正在推理…" : "实时推理叠加"}</button></div>
+              <Status error={inferError || runtime.error} />
               <Status
                 loading={compare.loading}
                 error={compare.error}

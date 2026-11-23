@@ -243,6 +243,7 @@ export interface Citation {
   chunk_id?: string;
 }
 export interface AgentAnswer {
+  artifacts?: AgentArtifact[];
   response_id: string;
   session_id: string;
   agent_run_id: string;
@@ -253,6 +254,28 @@ export interface AgentAnswer {
   llm_mode: string;
   grounded_check_passed: boolean;
   latency_ms: number;
+}
+export interface RuntimeModel {
+  model_version_id: string; model_name: string; version: string; task: string;
+  effective_status: string; adapter_type: string; artifact_uri: string | null;
+  ready: boolean; readiness_note: string; source_mode: string;
+}
+export interface Inference {
+  model_version_id: string; model_name: string; version: string; station_id: string;
+  trading_date: string; cutoff_at: string; source_mode: string; latency_ms: number;
+  trained_scope: string; training_pair_count: number; feature_hash: string;
+  metrics: { mae: number | null; online_mae: number | null; baseline_mae: number | null; sample_count: number; online_comparison: { runtime_mae: number | null; online_mae: number | null; sample_count: number } };
+  points: { interval_start: string; predicted_mw: number; baseline_mw: number; actual_mw: number | null; online_mw: number | null }[];
+}
+export type AgentArtifact =
+  | { type: "forecast_overlay"; title: string; tool_name: string; data: Inference }
+  | { type: "deviation_top"; title: string; tool_name: string; data: { interval_start: string; error_mw: number; interpretation: string }[] }
+  | { type: "revenue_compare"; title: string; tool_name: string; data: { plan_id: string; plan_name: string; net_revenue_yuan: number | null; settled_count: number }[] | { status?: string; reason?: string; delta_net_revenue_yuan?: number | null; delta_penalty_yuan?: number | null; settled_count?: number; warning?: string } };
+export interface ProactiveBrief {
+  brief_id: string; headline: string; severity: string; summary_markdown: string;
+  created_at: string; cutoff_at: string; source_mode: string; citations: unknown[];
+  recommended_action: { rsi_intervals: string[]; sandbox: unknown };
+  signals: { type: string; count: number }[];
 }
 export interface Feedback {
   feedback_id: string;

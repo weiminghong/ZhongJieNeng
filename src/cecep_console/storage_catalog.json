@@ -1092,5 +1092,29 @@
     "fact": false,
     "refs": [],
     "title": "approval_decision"
+  },
+  "agent_proactive_brief": {
+    "pk": "brief_id",
+    "fields": [
+      "station_id",
+      "trading_date",
+      "cutoff_at",
+      "source_mode",
+      "trigger_type",
+      "severity",
+      "headline",
+      "summary_markdown",
+      "signals_json",
+      "model_inference_json",
+      "recommended_action_json",
+      "citations_json",
+      "created_at"
+    ],
+    "keys": [
+      "brief_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "agent_proactive_brief"
   }
 }

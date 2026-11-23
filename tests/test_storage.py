@@ -46,7 +46,7 @@ class StorageTests(unittest.TestCase):
         self.store.initialize()
         self.assertEqual(self.store.inspect()["integrity"], "ok")
         self.assertEqual(self.store.inspect()["foreign_key_errors"], [])
-        self.assertEqual(len(CATALOG), 34)
+        self.assertEqual(len(CATALOG), 35)
         for table, definition in CATALOG.items():
             self.assertEqual(
                 {x[1] for x in self.store.db.execute(f"PRAGMA table_info({table})")},

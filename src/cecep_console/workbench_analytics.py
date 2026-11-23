@@ -240,7 +240,7 @@ def multi_day(store, scope, cutoff):
     }
 
 
-def trading_sandbox(store, scope, cutoff, intervals):
+def trading_sandbox(store, scope, cutoff, intervals, forecast_points=None):
     plans = rows(
         store,
         """SELECT * FROM bidding_plan WHERE station_id=? AND trading_date=?
@@ -318,7 +318,9 @@ def trading_sandbox(store, scope, cutoff, intervals):
             raise ValueError("缺少分时合约，不能静默假定零合约")
         pairs.append((item, r, c))
 
-    def settle(multiplier, fraction, penalty):
+    scenario_bids = {p["interval_start"]: p["predicted_mw"] for p in (forecast_points or [])}
+
+    def settle(multiplier, fraction, penalty, scenario=False):
         totals = {k: 0.0 for k in ("contract", "day_ahead", "real_time", "penalty")}
         exceeded = 0
         for item, r, c in pairs:
@@ -327,6 +329,10 @@ def trading_sandbox(store, scope, cutoff, intervals):
                 item["bid_energy_mwh"] * multiplier,
                 capacity * fraction * 0.25,
             )
+            if scenario and forecast_points is not None:
+                if item["interval_start"] not in scenario_bids:
+                    raise ValueError("小模型预测未覆盖沙盘时段")
+                bid = scenario_bids[item["interval_start"]] * 0.25 * multiplier
             entry = settle_interval(
                 actual,
                 bid,
@@ -352,7 +358,7 @@ def trading_sandbox(store, scope, cutoff, intervals):
         else parameters["penalty_yuan_mwh"]
     )
     baseline = settle(1, parameters["exempt_fraction"], parameters["penalty_yuan_mwh"])
-    simulated = settle(scope.bid_multiplier, scope.exempt_fraction, penalty)
+    simulated = settle(scope.bid_multiplier, scope.exempt_fraction, penalty, scenario=True)
     prices = [
         r["spread_yuan_mwh"] for r in intervals if r["spread_yuan_mwh"] is not None
     ]

@@ -25,6 +25,7 @@ import type {
   Overview,
   Mode,
   SourceMode,
+  Inference,
 } from "./types";
 import { query, useResource, time, stamp } from "./api";
 import { Drawer, Status } from "./components";
@@ -33,6 +34,7 @@ import Raw from "./Raw";
 import Trading from "./Trading";
 import Agent from "./Agent";
 import Rsi from "./Rsi";
+import ProactiveBriefs from "./ProactiveBriefs";
 
 const tabs = [
   {
@@ -86,12 +88,20 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState("");
+  const [overlay, setOverlay] = useState<Inference | null>(null);
+  useEffect(() => setOverlay(null), [scope.station_id, scope.date, scope.mode, scope.cutoff_at, scope.source_mode]);
+  const showOverlay = useCallback((data: Inference) => {
+    setOverlay(data); setTab("forecast"); setDrawer(false);
+  }, []);
   const [cutoffTime, setCutoffTime] = useState("12:00");
   const validDate = !!bootstrap.data?.dates.includes(scope.date);
   const overview = useResource<Overview>(
     validDate ? "/api/v1/workbench/overview?" + query(scope) : null,
     revision,
   );
+  useEffect(() => {
+    if (overlay && overview.data && overlay.cutoff_at !== overview.data.cutoff_at) setOverlay(null);
+  }, [overlay, overview.data]);
   useEffect(() => {
     const b = bootstrap.data;
     if (b && !b.dates.includes(scope.date))
@@ -415,6 +425,7 @@ export default function App() {
           </div>
         </header>
         <div className="admin-center-content presentation-polished">
+          {validDate && <ProactiveBriefs scope={scope} compact onEnter={() => setTab("agent")} onDraft={(text, interval) => { if (interval) selectInterval(interval); toDraft(text); }} />}
           {scope.source_mode === "production" ? (
             <section className="production-readiness panel" role="status">
               <div className="readiness-heading">
@@ -492,6 +503,9 @@ export default function App() {
                   onRaw={() => setTab("raw")}
                   onDateChange={(d) => updateContext({ date: d })}
                   revision={revision}
+                  overlay={overlay}
+                  onOverlay={showOverlay}
+                  onClearOverlay={() => setOverlay(null)}
                 />
               )}
               {tab === "raw" && (
@@ -517,6 +531,8 @@ export default function App() {
                 <section className="panel agent-page">
                   <Agent
                     scope={scope}
+                    theme={theme}
+                    onOverlay={showOverlay}
                     llmMode={bootstrap.data!.llm_mode}
                     onDraft={toDraft}
                   />
@@ -543,6 +559,8 @@ export default function App() {
         <Drawer title="随行智能体" onClose={() => setDrawer(false)}>
           <Agent
             scope={scope}
+            theme={theme}
+            onOverlay={showOverlay}
             llmMode={bootstrap.data!.llm_mode}
             onDraft={toDraft}
           />

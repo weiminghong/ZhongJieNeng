@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, Eye, EyeOff, KeyRound, LoaderCircle, PlugZap, Save, Settings2 } from "lucide-react";
+import RuntimeSettings from "./RuntimeSettings";
 
 type Config = {
   enabled: boolean;
@@ -108,6 +109,7 @@ export default function ModelSettings() {
           </section>
           <aside className="panel model-settings-summary"><h2>生效范围</h2><dl><dt>当前模式</dt><dd>{saved.llm_mode}</dd><dt>已保存模型</dt><dd>{saved.model}</dd><dt>密钥状态</dt><dd>{saved.api_key_hint}</dd><dt>最近保存</dt><dd>{saved.updated_at ? new Date(saved.updated_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "尚未通过页面保存"}</dd></dl><h3>Agent 的工作方式</h3><p>先查询数据库、计算指标和检索知识，再由语言模型选择既有证据。数值不交给语言模型自由生成。</p><p>服务不可达、模型无权限或输出不符合协议时会显示失败，并保留工具证据，不会显示虚假的连接成功。</p><p className="muted">保存设置无需重启服务，不下载模型权重，也不会启动训练。</p></aside>
         </div>}
+      <RuntimeSettings />
     </main>
   );
 }

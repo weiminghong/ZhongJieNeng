@@ -30,3 +30,8 @@
 .model-settings-result { margin-top: 20px; align-items: flex-start; }
 @media (max-width: 850px) { .model-settings-layout { grid-template-columns: 1fr; } .model-settings-heading { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 500px) { .model-settings-page { padding: 16px; } .model-settings-form, .model-settings-summary { padding: 16px; } .model-settings-parameters { grid-template-columns: 1fr; gap: 0; } .model-settings-actions button { width: 100%; } }
+.runtime-settings { margin-top: 24px; padding: 24px; }
+.runtime-registration { margin-top: 24px; }
+.runtime-registration fieldset { display: grid; gap: 16px; border: 0; padding: 0; min-width: 0; }
+.runtime-settings table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.runtime-settings th, .runtime-settings td { padding: 12px; text-align: left; border-bottom: 1px solid var(--ce-color-outline); }

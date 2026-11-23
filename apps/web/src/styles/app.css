@@ -1942,3 +1942,15 @@ pre {
     white-space: normal;
   }
 }
+/* Evidence cards share the workbench semantic tokens. */
+.proactive-strip, .proactive-briefs { padding: 12px; border: 1px solid var(--ce-color-outline); background: var(--ce-color-surface); border-radius: 8px; margin-bottom: 16px; }
+.proactive-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.proactive-heading > .muted { flex: 1; min-width: 160px; }
+.proactive-strip article, .proactive-briefs article { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--ce-color-outline); }
+.proactive-strip details, .proactive-briefs details { display: inline-block; margin: 8px; max-width: 100%; }
+.proactive-strip pre, .proactive-briefs pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.agent-artifacts { display: grid; gap: 12px; margin: 16px 0; }
+.artifact-card { min-width: 0; padding: 12px; border: 1px solid var(--ce-color-outline); background: var(--ce-color-surface-container); border-radius: 8px; }
+.artifact-card h3 { margin: 0 0 12px; font-size: 14px; }
+.artifact-metrics { display: flex; flex-wrap: wrap; gap: 16px; }
+.artifact-metrics strong { display: block; font-variant-numeric: tabular-nums; }

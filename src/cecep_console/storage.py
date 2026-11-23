@@ -32,6 +32,7 @@ UPPER_TABLES = {
     "agent_session",
     "agent_response",
     "deviation_case",
+    "agent_proactive_brief",
 }
 
 
@@ -618,7 +619,7 @@ class Store:
             "tables": {
                 t: self.db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
                 for t in list(CATALOG)
-                + sorted(UPPER_TABLES)
+                + sorted(UPPER_TABLES - set(CATALOG))
                 + [
                     "serving_interval_wide",
                     "serving_daily_kpi",

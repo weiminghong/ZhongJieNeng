@@ -40,6 +40,9 @@ from .rsi import (
 )
 from .trading import trading_overview
 from .agent_service import query_agent, agent_history
+from .model_runtime import list_runtime_models, register_runtime_model, run_model_inference
+from .proactive import run_proactive_analysis, latest_proactive_briefs
+from .serving import now
 
 
 class Scope(BaseModel):
@@ -86,6 +89,23 @@ class ModelSettingsInput(BaseModel):
     clear_api_key: bool = False
     timeout_seconds: int | None = Field(default=None, ge=5, le=120)
     max_output_tokens: int | None = Field(default=None, ge=128, le=4096)
+
+
+class RuntimeRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_name: str = Field(min_length=1, max_length=100)
+    version: str = Field(min_length=1, max_length=100)
+    task: str = "day_ahead_power"
+    artifact_uri: str = Field(min_length=1, max_length=2000)
+    artifact_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    source_mode: Literal["synthetic", "production"] = "synthetic"
+    params_json: dict = Field(default_factory=dict)
+
+
+class RuntimePrediction(Scope):
+    model_version_id: str | None = None
+    overrides: dict | None = None
+    persist: bool = False
 
 
 class Feedback(BaseModel):
@@ -189,7 +209,7 @@ def create_app():
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):
-        if request.url.path.startswith("/api/v1/settings/"):
+        if request.url.path.startswith("/api/v1/settings/") or request.url.path == "/api/v1/models/register":
             # Validation errors must never echo a submitted credential or body.
             return JSONResponse(
                 status_code=422, content={"error": "配置项格式或范围无效，请检查表单"}
@@ -249,6 +269,32 @@ def create_app():
     @app.get("/api/health")
     def health():
         return {"status": "ok", "service": "cecep-workbench-v1"}
+
+    @app.get("/api/v1/models/runtime")
+    def runtime_models(store: Store = Depends(get_store)):
+        return {"models": list_runtime_models(store)}
+
+    @app.post("/api/v1/models/register")
+    def register_model(body: RuntimeRegistration, request: Request, store: Store = Depends(get_store)):
+        settings_origin(request)
+        return register_runtime_model(store, body.model_dump())
+
+    @app.post("/api/v1/models/predict")
+    def predict_model(body: RuntimePrediction, store: Store = Depends(get_store)):
+        scope = Scope(**body.model_dump(exclude={"model_version_id", "overrides", "persist"}))
+        return run_model_inference(store, model_version_id=body.model_version_id, station_id=scope.station_id,
+                                   trading_date=scope.date, cutoff_at=resolve_scope(scope, store), source_mode=scope.source_mode,
+                                   overrides=body.overrides, persist=body.persist,
+                                   registry_cutoff=resolve_scope(scope, store) if scope.mode == "replay" else now())
+
+    @app.get("/api/v1/agent/proactive")
+    def proactive_briefs(scope: Scope = Depends(), store: Store = Depends(get_store)):
+        cutoff = resolve_scope(scope, store) if scope.mode == "replay" else now()
+        return {"briefs": latest_proactive_briefs(store, scope.station_id, scope.date, scope.source_mode, cutoff)}
+
+    @app.post("/api/v1/agent/proactive/run")
+    def proactive_run(scope: Scope, store: Store = Depends(get_store)):
+        return run_proactive_analysis(store, {**scope.model_dump(), "cutoff_at": resolve_scope(scope, store)})
 
     @app.get("/api/storage/{endpoint}")
     def legacy(endpoint: str, request: Request):

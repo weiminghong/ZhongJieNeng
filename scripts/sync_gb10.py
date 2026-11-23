@@ -67,6 +67,7 @@ def main():
         args.host,
         username=args.user,
         password=os.environ.get("CECEP_GB10_PASSWORD"),
+        key_filename=str(Path.home() / ".ssh/id_ed25519"),
         timeout=15,
     )
 
@@ -137,6 +138,11 @@ def main():
         receipt["other_ports_before"] = run(
             "ss -ltn '( sport = :8501 or sport = :8502 )'"
         )
+        settings_before = api("/api/v1/settings/llm")
+        private_before = python("import hashlib;from cecep_console.model_settings import settings_path;p=settings_path();print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')")
+        for port in (8501, 8502):
+            with urlopen(f"http://{args.host}:{port}", timeout=15) as response:
+                receipt[f"port_{port}_http_before"] = response.status
         if not args.verify_only:
             if release is None:
                 subprocess.run(
@@ -421,7 +427,7 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
-            and receipt["db_after"]["schema_version"] == 2
+            and receipt["db_after"]["schema_version"] == 3
         )
         receipt["db_write_verification"] = json.loads(
             python(
@@ -445,6 +451,35 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         for port in (8501, 8502):
             with urlopen(f"http://{args.host}:{port}", timeout=15) as response:
                 receipt[f"port_{port}_http_status"] = response.status
+        runtime_models = api("/api/v1/models/runtime")
+        assert any(m["ready"] and m["adapter_type"] == "builtin" for m in runtime_models["models"])
+        prediction = api("/api/v1/models/predict", {"persist": True})
+        assert len(prediction["points"]) == 96 and prediction["persisted_run_id"]
+        brief = api("/api/v1/agent/proactive/run", {})
+        assert brief["brief_id"] and len(brief["signals"]) == 4
+        latest = api("/api/v1/agent/proactive")
+        assert latest["briefs"][0]["brief_id"] == brief["brief_id"]
+        model_agent = api("/api/v1/agent/query", {"question": "调用小模型实时预测，比较线上预测"})
+        assert any(c["tool_name"] == "invoke_forecast_model" for c in model_agent["tool_calls"])
+        scenario_agent = api("/api/v1/agent/query", {"question": "云量+30%场景推演，联动收益沙盘"})
+        assert any(c["tool_name"] == "run_what_if_forecast" for c in scenario_agent["tool_calls"])
+        receipt["runtime_inference"] = {k:v for k,v in prediction.items() if k != "points"}
+        receipt["proactive_brief"] = {"brief_id": brief["brief_id"], "severity": brief["severity"], "headline": brief["headline"]}
+        receipt["runtime_db_verification"] = json.loads(python(
+            "import json;from cecep_console.storage import Store;s=Store(readonly=True);print(json.dumps({'prediction_points':s.db.execute('SELECT count(*) FROM prediction_value WHERE run_id=?',(" + repr(prediction["persisted_run_id"]) + ",)).fetchone()[0],'brief_rows':s.db.execute('SELECT count(*) FROM agent_proactive_brief WHERE brief_id=?',(" + repr(brief["brief_id"]) + ",)).fetchone()[0],'inference_tool_rows':s.db.execute(\"SELECT count(*) FROM agent_tool_call WHERE agent_run_id=? AND tool_name='invoke_forecast_model'\",(" + repr(model_agent["agent_run_id"]) + ",)).fetchone()[0]}));s.close()"))
+        assert receipt["runtime_db_verification"] == {"prediction_points":96, "brief_rows":1, "inference_tool_rows":1}
+        receipt["scenario"] = {"agent_run_id":scenario_agent["agent_run_id"], "artifacts":len(scenario_agent["artifacts"]),
+                               "sandbox":next(c["output"]["sandbox"] for c in scenario_agent["tool_calls"] if c["tool_name"] == "run_what_if_forecast")}
+        private_after = python("import hashlib;from cecep_console.model_settings import settings_path;p=settings_path();print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')")
+        assert private_after == private_before and api("/api/v1/settings/llm") == settings_before
+        receipt["private_llm_configuration_unchanged"] = True
+        receipt["db_after"] = inspect()
+        assert receipt["db_after"]["integrity"] == "ok" and not receipt["db_after"]["foreign_key_errors"]
+        if "db_before" in receipt:
+            assert all(receipt["db_after"]["tables"].get(table,0) >= count for table,count in receipt["db_before"]["tables"].items() if not table.startswith("serving_"))
+            receipt["old_table_row_counts_preserved"] = True
+        if (ROOT / "runtime/agent-runtime-local-validation.json").is_file():
+            receipt["local_validation"] = json.loads((ROOT / "runtime/agent-runtime-local-validation.json").read_text(encoding="utf-8"))
         receipt["status"] = "passed"
     except BaseException as exc:
         receipt["status"] = "failed"
@@ -457,6 +492,8 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         target.write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        (ROOT / "runtime/agent-runtime-proactive-audit.json").write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
         print(
             json.dumps(
                 {

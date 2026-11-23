@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Send,
   FileCheck2,
@@ -8,7 +8,9 @@ import {
   History,
   Settings2,
 } from "lucide-react";
-import type { Scope, AgentAnswer } from "./types";
+import type { Scope, AgentAnswer, Inference, Theme } from "./types";
+import AgentArtifacts from "./AgentArtifacts";
+import ProactiveBriefs from "./ProactiveBriefs";
 import { request, useResource, time } from "./api";
 import { Status, Segments } from "./components";
 
@@ -16,10 +18,14 @@ export default function Agent({
   scope,
   llmMode,
   onDraft,
+  onOverlay,
+  theme = "standard-light",
 }: {
   scope: Scope;
   llmMode: string;
   onDraft: (draft: string) => void;
+  onOverlay?: (data: Inference) => void;
+  theme?: Theme;
 }) {
   const [view, setView] = useState("query");
   const [question, setQuestion] = useState(
@@ -29,6 +35,9 @@ export default function Agent({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const context = JSON.stringify(scope);
+  const currentContext = useRef(context);
+  currentContext.current = context;
   const history = useResource<{ history: AgentAnswer[] }>(
     "/api/v1/agent/history?station_id=" +
       encodeURIComponent(scope.station_id) +
@@ -45,8 +54,10 @@ export default function Agent({
     scope.mode,
     scope.cutoff_at,
     scope.selected_interval,
+    scope.source_mode,
   ]);
   async function send(prompt = question) {
+    const capturedContext = context;
     setBusy(true);
     setError("");
     try {
@@ -54,9 +65,9 @@ export default function Agent({
         ...scope,
         question: prompt,
       });
-      setAnswer(data);
+      if (currentContext.current === capturedContext) setAnswer(data);
     } catch (e) {
-      setError((e as Error).message);
+      if (currentContext.current === capturedContext) setError((e as Error).message);
     } finally {
       setBusy(false);
       setRevision((v) => v + 1);
@@ -132,6 +143,7 @@ export default function Agent({
         onChange={setView}
         options={[
           ["query", "业务分析"],
+          ["proactive", "主动研判简报"],
           ["history", "问答记录"],
         ]}
       />
@@ -139,6 +151,8 @@ export default function Agent({
         <>
           <div className="quick-insights" aria-label="快捷业务洞察">
             {[
+              ["调用小模型实时预测", "调用小模型实时预测，比较线上预测与实测，展示96点曲线。"],
+              ["云量+30%场景推演", "云量+30%场景推演，调用小模型重算预测并联动收益沙盘。"],
               [
                 "今日偏差归因",
                 "请基于今日可见实测与日前预测，定位超阈偏差时段，分析天气及运行事件线索，并列出证据与不确定性。",
@@ -217,6 +231,7 @@ export default function Agent({
                 </span>
               </header>
               <p className="answer-text">{shown.answer_markdown}</p>
+              <AgentArtifacts artifacts={shown.artifacts || []} theme={theme} onOverlay={onOverlay} />
               <div className="citation-list">
                 {shown.citations.map((c) => (
                   <a
@@ -272,6 +287,7 @@ export default function Agent({
           )}
         </>
       )}
+      {view === "proactive" && <ProactiveBriefs scope={scope} onDraft={onDraft} />}
       {view === "history" && (
         <section className="agent-history">
           <h3>
