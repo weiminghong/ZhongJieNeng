@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import { Calculator, ShieldCheck } from "lucide-react";
-import type { EChartsOption } from "echarts";
+import type { CustomSeriesOption, EChartsOption } from "echarts";
 import type { Scope, Theme, Trading as TradingData } from "./types";
 import { query, useResource, fmt, request, time } from "./api";
 import { Panel, Status, Segments } from "./components";
+import { SandboxPanel, PricePanel } from "./TradingAnalytics";
 import Chart, { baseOption, color } from "./Chart";
 
 export default function Trading({
@@ -11,20 +12,92 @@ export default function Trading({
   theme,
   revision,
   onRefresh,
+  onDateChange,
 }: {
   scope: Scope;
   theme: Theme;
   revision: number;
   onRefresh: () => void;
+  onDateChange: (date: string) => void;
 }) {
   const result = useResource<TradingData>(
     "/api/v1/workbench/trading?" + query(scope),
     revision,
   );
   const [view, setView] = useState("revenue");
+  const [planId, setPlanId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const plans = result.data?.plans || [];
+  const plans = [...(result.data?.plans || [])].sort((a, b) => {
+    const rank = (name: string) =>
+      name.includes("基准") ? 0 : name.includes("保守") ? 1 : 2;
+    return rank(a.plan_name) - rank(b.plan_name);
+  });
+  const chosen = plans.find((p) => p.plan_id === planId) || plans[0];
+  const waterfall = useCallback((): EChartsOption => {
+    const b = baseOption();
+    const names = [
+      "中长期合同",
+      "+日前现货",
+      "±实时偏差",
+      "−偏差考核",
+      "净收益",
+    ];
+    const components = ["contract", "day_ahead", "real_time", "penalty"];
+    let running = 0;
+    const values = components.map((key, index) => {
+      const from = running,
+        delta = chosen?.components[key] ?? 0;
+      running += delta;
+      return [index, from, running, delta];
+    });
+    values.push([4, 0, running, running]);
+    const tokens = ["primary", "data", "warning", "error", "success"];
+    const series: CustomSeriesOption = {
+      type: "custom",
+      name: "收益构成",
+      encode: { x: 0, y: [1, 2] },
+      data: chosen?.net_revenue_yuan == null ? [] : values,
+      renderItem: (params, api) => {
+        const index = Number(api.value(0));
+        const from = api.coord([index, Number(api.value(1))]);
+        const to = api.coord([index, Number(api.value(2))]);
+        const size = api.size?.([1, 0]) as number[];
+        const width = Math.min(Math.abs(size[0]) * 0.6, 70);
+        return {
+          type: "rect",
+          shape: {
+            x: from[0] - width / 2,
+            y: Math.min(from[1], to[1]),
+            width,
+            height: Math.max(Math.abs(from[1] - to[1]), 1),
+          },
+          style: { fill: color(tokens[params.dataIndex]) },
+        };
+      },
+    };
+    return {
+      ...b,
+      legend: { show: false },
+      xAxis: {
+        type: "category",
+        axisLine: { lineStyle: { color: color("outline") } },
+        boundaryGap: true,
+        data: names,
+        axisLabel: { interval: 0, fontSize: 10 },
+      },
+      yAxis: { ...b.yAxis, name: "元" },
+      tooltip: {
+        ...b.tooltip,
+        trigger: "item",
+        formatter: (p: unknown) => {
+          const index = (p as { dataIndex: number }).dataIndex;
+          return `${names[index]}<br/>${fmt(values[index][3])} 元<br/>累计 ${fmt(values[index][2])} 元`;
+        },
+      },
+      series: [series],
+    };
+  }, [chosen]);
   const decomposition = useCallback((): EChartsOption => {
     const b = baseOption();
     return {
@@ -141,13 +214,49 @@ export default function Trading({
             value={view}
             onChange={setView}
             options={[
-              ["revenue", "收益比较"],
-              ["quantity", "96 点申报策略"],
-              ["rules", "结算规则与边界"],
+              ["revenue", "收益瀑布与对比"],
+              ["sandbox", "调参沙盘与风险"],
+              ["prices", "电价热力图与峰谷"],
+              ["quantity", "96 点申报与规则"],
             ]}
           />
+          {(view === "revenue" || view === "sandbox") && (
+            <Segments
+              label="结算方案"
+              value={chosen.plan_id}
+              onChange={setPlanId}
+              options={plans.map((p) => [p.plan_id, p.plan_name] as const)}
+            />
+          )}
+          {view === "sandbox" && (
+            <SandboxPanel
+              key={scope.station_id + scope.date + scope.mode}
+              scope={scope}
+              theme={theme}
+              plan={chosen}
+              revision={revision}
+            />
+          )}
+          {view === "prices" && (
+            <PricePanel
+              scope={scope}
+              theme={theme}
+              revision={revision}
+              onDateChange={onDateChange}
+            />
+          )}
           {view === "revenue" && (
             <>
+              <Panel
+                title={`${chosen.plan_name} · 收益瀑布`}
+                subtitle="每一阶显示实际增减与累计金额，末阶为净收益；缺少配对记录不绘制金额"
+              >
+                <Chart
+                  label="中长期、日前、实时、考核至净收益的累计收益瀑布图"
+                  option={waterfall}
+                  theme={theme}
+                />
+              </Panel>
               <Panel
                 title="收益构成与方案比较"
                 subtitle="中长期 + 日前现货 + 实时偏差 − 偏差考核 = 净收益；已实现配对范围内比较"
@@ -206,7 +315,7 @@ export default function Trading({
               />
             </Panel>
           )}
-          {view === "rules" && (
+          {view === "quantity" && (
             <Panel
               title="结算规则与边界"
               subtitle="演示规则已版本化落库；正式市场规则与真实合同尚未接入"

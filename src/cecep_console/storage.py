@@ -85,7 +85,7 @@ def digest(payload):
 
 
 class Store:
-    def __init__(self, path=None, *, readonly=False):
+    def __init__(self, path=None, *, readonly=False, check_same_thread=True):
         self.path = (
             Path(path or os.environ.get("CECEP_DB_PATH", DEFAULT_DB))
             .expanduser()
@@ -94,9 +94,16 @@ class Store:
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self.db = (
-            sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True, timeout=15)
+            sqlite3.connect(
+                self.path.as_uri() + "?mode=ro",
+                uri=True,
+                timeout=15,
+                check_same_thread=check_same_thread,
+            )
             if readonly
-            else sqlite3.connect(self.path, timeout=15)
+            else sqlite3.connect(
+                self.path, timeout=15, check_same_thread=check_same_thread
+            )
         )
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")

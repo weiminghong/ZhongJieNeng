@@ -8,3 +8,5 @@
 - 收益由确定性规则引擎计算；演示 ±5% 免考只作沙盘参考，不声称为真实市场规则。PIT 回放按 `available_at <= cutoff_at`；训练不得使用 serving 宽表。
 - 完成逻辑批次：运行完整 Python 测试、Token 生成与 Web build → 精确 stage 本批次文件 → 中文 `[codex]` commit → push `origin/codex/agent-workbench` → GB10 fast-forward、迁移、同步已验证 dist、只重启 `cecep-storage.service` → HTTP 与 DB 验收。不得影响 8501/8502 服务。
 - 凭据仅从环境或交互秘密输入获取，不进入仓库、日志和验收收据。运行产物置于忽略的 `runtime/`。
+
+- 永久用词规范：所有前端界面文案、代码注释、CSS 类名、API 文案、文档及提交信息，禁止使用车辆操控相关称谓及其英文座舱称谓；统一使用 `智能体助手`、`随行智能体`、`双栏工作区`、`外部演示面板`、`.forecast-workspace`。

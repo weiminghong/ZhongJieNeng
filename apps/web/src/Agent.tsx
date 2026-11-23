@@ -46,13 +46,13 @@ export default function Agent({
     scope.cutoff_at,
     scope.selected_interval,
   ]);
-  async function send() {
+  async function send(prompt = question) {
     setBusy(true);
     setError("");
     try {
       const data = await request<AgentAnswer>("/api/v1/agent/query", {
         ...scope,
-        question,
+        question: prompt,
       });
       setAnswer(data);
     } catch (e) {
@@ -70,7 +70,7 @@ export default function Agent({
           <Sparkles size={22} />
         </div>
         <div>
-          <h2>双通道 Agent 副驾驶</h2>
+          <h2>双通道智能体助手</h2>
           <p>结构化数据走 SQL 与确定性计算，业务知识走 FTS5 + TF-IDF 检索。</p>
         </div>
         <a className="button" href="/settings">
@@ -137,6 +137,37 @@ export default function Agent({
       />
       {view === "query" && (
         <>
+          <div className="quick-insights" aria-label="快捷业务洞察">
+            {[
+              [
+                "今日偏差归因",
+                "请基于今日可见实测与日前预测，定位超阈偏差时段，分析天气及运行事件线索，并列出证据与不确定性。",
+              ],
+              [
+                "电价与价差波动",
+                "请分析当前交易日可见日前与实时电价、RT减DA价差的波动与极端时段，引用实际记录。",
+              ],
+              [
+                "三方案收益比较",
+                "请在相同可结算时段比较基准、保守、价差套利三方案的合同、日前、实时及考核收益，说明缺失数据边界。",
+              ],
+              [
+                "生成交易复盘摘要",
+                "请基于当前交易日的预测误差、电价价差、三方案结算与规则证据，生成可追溯的交易复盘摘要。",
+              ],
+            ].map(([label, prompt]) => (
+              <button
+                key={label}
+                disabled={busy}
+                onClick={() => {
+                  setQuestion(prompt);
+                  void send(prompt);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();

@@ -34,6 +34,7 @@ export interface Bootstrap {
   evidently: { report_url: string; status: string; notice: string };
 }
 export interface Interval {
+  trading_date: string;
   station_id: string;
   interval_start: string;
   interval_end: string;
@@ -57,6 +58,11 @@ export interface Interval {
   lineage_refs_json: string;
 }
 export interface Kpi {
+  mbe: number | null;
+  mbe_mw: number | null;
+  skill_score: number | null;
+  interval_coverage_pct: number | null;
+  direction_breakdown: DirectionBreakdown;
   energy_actual_mwh: number | null;
   energy_forecast_matched_mwh: number | null;
   power_mae_mw: number | null;
@@ -82,6 +88,9 @@ export interface Overview {
   }[];
 }
 export interface Version {
+  mbe: number | null;
+  skill_score: number | null;
+  interval_coverage_pct: number | null;
   run_id: string;
   model_version_id: string;
   model_name: string;
@@ -121,6 +130,105 @@ export interface Plan {
 export interface Trading {
   plans: Plan[];
   engine: string;
+}
+export interface DirectionBreakdown {
+  positive: { count: number; mean_bias_mw: number | null };
+  negative: { count: number; mean_bias_mw: number | null };
+  zero_count: number;
+}
+export interface ErrorBucket {
+  name: string;
+  sample_count: number;
+  mae: number | null;
+  rmse: number | null;
+  mbe: number | null;
+  avg_actual_mw: number | null;
+}
+export interface PriceSummary {
+  da_price: number | null;
+  rt_price: number | null;
+  spread_yuan_mwh: number | null;
+}
+export interface MultiDay {
+  days: (Pick<
+    Kpi,
+    | "energy_actual_mwh"
+    | "energy_forecast_matched_mwh"
+    | "power_mae_mw"
+    | "power_rmse_mw"
+    | "mbe_mw"
+    | "avg_spread"
+    | "observed_count"
+    | "due_count"
+  > & { trading_date: string })[];
+  series: Interval[];
+  price_heatmap: {
+    dates: string[];
+    hours: number[];
+    cells: (PriceSummary & { trading_date: string; hour: number })[];
+  };
+  price_periods: {
+    periods: (PriceSummary & {
+      name: string;
+      window: string;
+      sample_count: number;
+    })[];
+    max_positive: {
+      interval_start: string;
+      trading_date: string;
+      spread_yuan_mwh: number;
+    } | null;
+    max_negative: {
+      interval_start: string;
+      trading_date: string;
+      spread_yuan_mwh: number;
+    } | null;
+    price_backtest: {
+      da_price_mae: number | null;
+      spread_direction_accuracy_pct: number | null;
+      sample_count: number;
+      da_price_sample_count: number;
+      basis: string;
+    };
+  };
+  weather_buckets: ErrorBucket[];
+  time_buckets: ErrorBucket[];
+}
+export interface Sandbox {
+  plan_id: string;
+  plan_name: string;
+  parameters: {
+    bid_multiplier: number;
+    exempt_fraction: number;
+    penalty_yuan_mwh: number;
+    inherited_penalty: boolean;
+  };
+  baseline: {
+    components: Record<string, number | null>;
+    net_revenue_yuan: number | null;
+    exceeded_count: number;
+  };
+  simulated: Sandbox["baseline"];
+  delta_net_revenue_yuan: number | null;
+  delta_penalty_yuan: number | null;
+  settled_count: number;
+  unsettled_count: number;
+  risk_assessment: {
+    price_risk: number | null;
+    deviation_risk: number | null;
+    weather_risk: number | null;
+    overall_score: number | null;
+    level: string;
+    basis: string;
+  };
+  strategy_matrix: {
+    name: string;
+    score_range: string;
+    rule: string;
+    active: boolean;
+    source_mode: string;
+  }[];
+  warning: string;
 }
 export interface ToolCall {
   tool_name: string;

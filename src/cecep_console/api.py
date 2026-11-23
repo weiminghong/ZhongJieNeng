@@ -13,7 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from urllib.parse import urlsplit
-from .model_settings import public_settings, save_settings, test_connection, ProviderError
+from .model_settings import (
+    public_settings,
+    save_settings,
+    test_connection,
+    ProviderError,
+)
 from .storage import Store, CATALOG, instant
 from . import storage_api
 from .serving import (
@@ -23,7 +28,9 @@ from .serving import (
     daily_kpi,
     compare_versions,
     metrics,
+    power_metrics,
 )
+from .workbench_analytics import multi_day, trading_sandbox
 from .rsi import (
     rsi_overview,
     review_feedback,
@@ -61,6 +68,15 @@ class AgentQuery(Scope):
     session_id: str | None = None
 
 
+class SandboxInput(Scope):
+    plan_id: str | None = None
+    bid_multiplier: float = Field(default=1.0, ge=0.7, le=1.3, allow_inf_nan=False)
+    exempt_fraction: float = Field(default=0.05, ge=0.01, le=0.15, allow_inf_nan=False)
+    penalty_yuan_mwh: float | None = Field(
+        default=None, ge=0.0, le=500.0, allow_inf_nan=False
+    )
+
+
 class ModelSettingsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool | None = None
@@ -92,7 +108,9 @@ class Approval(BaseModel):
 
 
 def get_store():
-    with Store() as store:
+    # Each request owns its connection. FastAPI may resume/close it on a different
+    # worker thread; no connection is shared between concurrent requests.
+    with Store(check_same_thread=False) as store:
         yield store
 
 
@@ -130,6 +148,20 @@ def overview(store, scope):
             (scope.station_id, scope.date, scope.source_mode),
         ).fetchone()
         kpi = dict(result) if result else None
+        if kpi is not None:
+            m = power_metrics(intervals)
+            kpi.update(
+                {
+                    k: m[k]
+                    for k in (
+                        "mbe",
+                        "skill_score",
+                        "interval_coverage_pct",
+                        "direction_breakdown",
+                    )
+                }
+            )
+            kpi["mbe_mw"] = m["mbe"]
         path = "serving_interval_wide + serving_daily_kpi"
     return {
         "intervals": intervals,
@@ -159,7 +191,9 @@ def create_app():
     async def invalid_request(request, exc):
         if request.url.path.startswith("/api/v1/settings/"):
             # Validation errors must never echo a submitted credential or body.
-            return JSONResponse(status_code=422, content={"error": "配置项格式或范围无效，请检查表单"})
+            return JSONResponse(
+                status_code=422, content={"error": "配置项格式或范围无效，请检查表单"}
+            )
         return await request_validation_exception_handler(request, exc)
 
     def settings_origin(request):
@@ -179,7 +213,9 @@ def create_app():
         changes = body.model_dump(exclude_none=True)
         if body.api_key is not None:
             changes["api_key"] = body.api_key.get_secret_value()
-        return JSONResponse(save_settings(changes), headers={"Cache-Control": "no-store"})
+        return JSONResponse(
+            save_settings(changes), headers={"Cache-Control": "no-store"}
+        )
 
     @app.post("/api/v1/settings/llm/test")
     def check_model_connection(request: Request):
@@ -190,7 +226,11 @@ def create_app():
         except ProviderError as exc:
             return JSONResponse(
                 status_code=502,
-                content={"status": "failed", "error": "模型连接或证据约束测试失败", "code": exc.code},
+                content={
+                    "status": "failed",
+                    "error": "模型连接或证据约束测试失败",
+                    "code": exc.code,
+                },
                 headers={"Cache-Control": "no-store"},
             )
 
@@ -265,6 +305,10 @@ def create_app():
     @app.get("/api/v1/workbench/overview")
     def get_overview(scope: Scope = Depends(), store: Store = Depends(get_store)):
         return overview(store, scope)
+
+    @app.get("/api/v1/workbench/multi-day")
+    def get_multi_day(scope: Scope = Depends(), store: Store = Depends(get_store)):
+        return multi_day(store, scope, resolve_scope(scope, store))
 
     @app.get("/api/v1/workbench/raw")
     def raw(
@@ -354,6 +398,26 @@ def create_app():
             comparisons = [json.loads(r["metrics_b_json"]) for r in cache]
             path = "serving_version_compare"
         intervals = overview(store, scope)["intervals"]
+        # Enrich older serving JSON without requiring migration or a cache rebuild.
+        interval_map = {r["interval_start"]: r for r in intervals}
+        for version in comparisons:
+            points = rows(
+                store,
+                "SELECT p.* FROM prediction_value p JOIN prediction_run r USING(run_id) WHERE p.run_id=? AND r.available_at<=? ORDER BY p.target_start",
+                (version["run_id"], cutoff),
+            )
+            mask = set(version["matched_intervals"])
+            matched = [
+                {
+                    **interval_map[p["target_start"]],
+                    "da_forecast_mw": p["value"],
+                    "lower_mw": p["lower_value"],
+                    "upper_mw": p["upper_value"],
+                }
+                for p in points
+                if p["target_start"] in mask and p["target_start"] in interval_map
+            ]
+            version.update(power_metrics(matched))
         paired = [
             r
             for r in intervals
@@ -403,6 +467,21 @@ def create_app():
             )
             refresh_serving_tables(store, scope.station_id)
         return result
+
+    @app.post("/api/v1/workbench/trading/sandbox")
+    def sandbox(body: SandboxInput, store: Store = Depends(get_store)):
+        scope = Scope(
+            **body.model_dump(
+                exclude={
+                    "plan_id",
+                    "bid_multiplier",
+                    "exempt_fraction",
+                    "penalty_yuan_mwh",
+                }
+            )
+        )
+        data = overview(store, scope)
+        return trading_sandbox(store, body, data["cutoff_at"], data["intervals"])
 
     @app.get("/api/v1/workbench/rsi")
     def rsi(scope: Scope = Depends(), store: Store = Depends(get_store)):

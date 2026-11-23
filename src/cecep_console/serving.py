@@ -31,15 +31,67 @@ def data_clock(store, source_mode="synthetic"):
     return now()
 
 
-def metrics(actual, predicted):
-    errors = [
-        p - a for a, p in zip(actual, predicted) if a is not None and p is not None
+def metrics(actual, predicted, clear_sky=None, lower=None, upper=None):
+    pairs = [
+        (i, a, p)
+        for i, (a, p) in enumerate(zip(actual, predicted))
+        if a is not None and p is not None
     ]
+    errors = [a - p for _, a, p in pairs]
+    rmse = math.sqrt(sum(e * e for e in errors) / len(errors)) if errors else None
+    baseline_complete = (
+        bool(pairs)
+        and clear_sky is not None
+        and all(i < len(clear_sky) and clear_sky[i] is not None for i, _, _ in pairs)
+    )
+    baseline_rmse = (
+        math.sqrt(sum((a - clear_sky[i]) ** 2 for i, a, _ in pairs) / len(pairs))
+        if baseline_complete
+        else None
+    )
+    covered = [
+        (a, lo, hi)
+        for a, lo, hi in zip(actual, lower or [], upper or [])
+        if a is not None and lo is not None and hi is not None and lo <= hi
+    ]
+
+    def direction(sign):
+        subset = [e for e in errors if e * sign > 0]
+        return {
+            "count": len(subset),
+            "mean_bias_mw": sum(subset) / len(subset) if subset else None,
+        }
+
     return {
         "mae": sum(map(abs, errors)) / len(errors) if errors else None,
-        "rmse": math.sqrt(sum(x * x for x in errors) / len(errors)) if errors else None,
+        "rmse": rmse,
         "sample_count": len(errors),
+        "mbe": sum(errors) / len(errors) if errors else None,
+        "skill_score": (
+            1 - rmse / baseline_rmse if baseline_rmse and baseline_rmse > 0 else None
+        ),
+        "interval_coverage_pct": (
+            100 * sum(lo <= a <= hi for a, lo, hi in covered) / len(covered)
+            if covered
+            else None
+        ),
+        "interval_coverage_sample_count": len(covered),
+        "direction_breakdown": {
+            "positive": direction(1),
+            "negative": direction(-1),
+            "zero_count": sum(e == 0 for e in errors),
+        },
     }
+
+
+def power_metrics(intervals, field="da_forecast_mw"):
+    return metrics(
+        [r.get("actual_mw") for r in intervals],
+        [r.get(field) for r in intervals],
+        [r.get("physical_clear_sky_mw") for r in intervals],
+        [r.get("lower_mw") for r in intervals],
+        [r.get("upper_mw") for r in intervals],
+    )
 
 
 def build_intervals(
@@ -297,7 +349,7 @@ def daily_kpi(intervals, cutoff):
         for r in intervals
         if r["actual_mw"] is not None and r["da_forecast_mw"] is not None
     ]
-    m = metrics([r["actual_mw"] for r in paired], [r["da_forecast_mw"] for r in paired])
+    m = power_metrics(intervals)
     spreads = [
         r["spread_yuan_mwh"] for r in intervals if r["spread_yuan_mwh"] is not None
     ]
@@ -320,6 +372,11 @@ def daily_kpi(intervals, cutoff):
         ),
         power_mae_mw=m["mae"],
         power_rmse_mw=m["rmse"],
+        mbe=m["mbe"],
+        mbe_mw=m["mbe"],
+        skill_score=m["skill_score"],
+        interval_coverage_pct=m["interval_coverage_pct"],
+        direction_breakdown=m["direction_breakdown"],
         price_mae=sum(prices) / len(prices) if prices else None,
         avg_spread=sum(spreads) / len(spreads) if spreads else None,
         max_abs_spread=max(map(abs, spreads), default=None),
@@ -366,6 +423,12 @@ def compare_versions(store, station_id, day, cutoff, source_mode="synthetic"):
         r["run_id"]: {p["target_start"]: p for p in ps if p["run_id"] == r["run_id"]}
         for r in runs
     }
+    physical = {
+        r["interval_start"]: r["physical_clear_sky_mw"]
+        for r in build_intervals(
+            store, station_id, day, cutoff, source_mode, registry_cutoff=cutoff
+        )
+    }
     result = []
     # Exact same cutoff and target interval; shared valid actual mask across all versions.
     cohorts = {}
@@ -381,6 +444,9 @@ def compare_versions(store, station_id, day, cutoff, source_mode="synthetic"):
             m = metrics(
                 [actual[k] for k in sorted(matched)],
                 [grouped[run["run_id"]][k]["value"] for k in sorted(matched)],
+                [physical.get(k) for k in sorted(matched)],
+                [grouped[run["run_id"]][k]["lower_value"] for k in sorted(matched)],
+                [grouped[run["run_id"]][k]["upper_value"] for k in sorted(matched)],
             )
             result.append(
                 {
@@ -425,6 +491,11 @@ def refresh_serving_tables(store, station_id=None):
         for r in intervals:
             insert("serving_interval_wide", r)
         kpi = daily_kpi(intervals, cutoff)
+        # New analytical fields are computed at read time; the storage schema is immutable.
+        columns = {
+            r[1] for r in store.db.execute("PRAGMA table_info(serving_daily_kpi)")
+        }
+        kpi = {k: v for k, v in kpi.items() if k in columns}
         revenue = store.db.execute(
             "SELECT sum(i.amount_yuan),sum(CASE WHEN i.component='penalty' THEN -i.amount_yuan ELSE 0 END) FROM revenue_item i JOIN revenue_run r USING(revenue_run_id) WHERE r.revenue_run_id=(SELECT revenue_run_id FROM revenue_run WHERE station_id=? AND scenario_name LIKE '%基准%' AND period_start=? ORDER BY created_at DESC,revenue_run_id DESC LIMIT 1)",
             (station, day_bounds(day)[0]),

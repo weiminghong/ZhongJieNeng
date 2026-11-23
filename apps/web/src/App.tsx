@@ -55,7 +55,7 @@ const tabs = [
   },
   {
     id: "agent",
-    title: "Agent 副驾驶",
+    title: "智能体助手",
     icon: Sparkles,
     description: "双通道工具分析与知识检索",
   },
@@ -288,7 +288,7 @@ export default function App() {
           </button>
           <button className="primary-button" onClick={() => setDrawer(true)}>
             <Sparkles size={16} />
-            Agent 副驾驶
+            智能体助手
             <PanelRightOpen size={15} />
           </button>
         </div>
@@ -490,6 +490,7 @@ export default function App() {
                   capacity={station?.capacity_ac_mw || 0}
                   onSelect={selectInterval}
                   onRaw={() => setTab("raw")}
+                  onDateChange={(d) => updateContext({ date: d })}
                   revision={revision}
                 />
               )}
@@ -509,6 +510,7 @@ export default function App() {
                   theme={theme}
                   revision={revision}
                   onRefresh={refresh}
+                  onDateChange={(d) => updateContext({ date: d })}
                 />
               )}
               {tab === "agent" && (
@@ -538,7 +540,7 @@ export default function App() {
         </div>
       </main>
       {drawer && (
-        <Drawer title="随行 Agent 副驾驶" onClose={() => setDrawer(false)}>
+        <Drawer title="随行智能体" onClose={() => setDrawer(false)}>
           <Agent
             scope={scope}
             llmMode={bootstrap.data!.llm_mode}

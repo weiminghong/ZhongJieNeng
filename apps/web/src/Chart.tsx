@@ -1,12 +1,20 @@
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { LineChart, BarChart, ScatterChart } from "echarts/charts";
+import {
+  LineChart,
+  BarChart,
+  ScatterChart,
+  HeatmapChart,
+  CustomChart,
+} from "echarts/charts";
 import {
   TooltipComponent,
   GridComponent,
   LegendComponent,
   DataZoomComponent,
   MarkLineComponent,
+  MarkAreaComponent,
+  VisualMapComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
@@ -15,11 +23,15 @@ echarts.use([
   LineChart,
   BarChart,
   ScatterChart,
+  HeatmapChart,
+  CustomChart,
   TooltipComponent,
   GridComponent,
   LegendComponent,
   DataZoomComponent,
   MarkLineComponent,
+  MarkAreaComponent,
+  VisualMapComponent,
   CanvasRenderer,
 ]);
 export function color(name: string) {

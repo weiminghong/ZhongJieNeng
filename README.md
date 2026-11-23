@@ -40,7 +40,7 @@ python scripts/sync_gb10.py
 
 脚本验证远端工作树，fast-forward 到本地已验证 commit；在线备份旧 SQLite；安装依赖；校验每个 dist 文件的 SHA256 后切换；执行增量迁移与幂等 seed；仅重启 `cecep-storage.service`。随后进行真实 HTTP、Agent、审核入库、FTS5 命中、审批回滚与数据库完整性验收，结果写入被忽略的 `runtime/gb10-deploy-receipt.json`。`--verify-only` 跳过部署，仍执行包含合成反馈写入和审批回滚的完整验收。
 
-服务入口仍为 `scripts/start_storage.sh`，默认监听 8503。原 8501 驾驶舱与 8502 中文 Evidently 报告服务保留，不修改其启动或代码。远端第三方子模块的既存改动不覆盖。
+服务入口仍为 `scripts/start_storage.sh`，默认监听 8503。原 8501 外部演示面板与 8502 中文 Evidently 报告服务保留，不修改其启动或代码。远端第三方子模块的既存改动不覆盖。
 
 ## 可选外部摘要器
 
