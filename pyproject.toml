@@ -16,4 +16,4 @@ dependencies = {file = ["requirements.txt"]}
 where = ["src"]
 
 [tool.setuptools.package-data]
-cecep_console = ["static/*"]
+cecep_console = ["static/*", "storage_sql/*.sql", "storage_catalog.json"]

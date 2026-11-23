@@ -1,0 +1,1096 @@
+{
+  "data_source": {
+    "pk": "source_id",
+    "fields": [
+      "source_name",
+      "source_type",
+      "provider_name",
+      "data_scope",
+      "default_timezone",
+      "expected_update_interval",
+      "access_method",
+      "owner_contact",
+      "enabled",
+      "created_at"
+    ],
+    "keys": [
+      "source_name"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "数据来源"
+  },
+  "ingestion_batch": {
+    "pk": "batch_id",
+    "fields": [
+      "source_id",
+      "dataset_name",
+      "requested_start",
+      "requested_end",
+      "started_at",
+      "finished_at",
+      "status",
+      "record_count",
+      "raw_file_uri",
+      "file_hash",
+      "parser_version",
+      "error_summary"
+    ],
+    "keys": [
+      "source_id",
+      "dataset_name",
+      "file_hash"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "source_id",
+        "data_source"
+      ]
+    ],
+    "title": "采集批次"
+  },
+  "station": {
+    "pk": "station_id",
+    "fields": [
+      "station_code",
+      "station_name",
+      "station_type",
+      "province_code",
+      "latitude",
+      "longitude",
+      "altitude_m",
+      "timezone",
+      "commissioned_at",
+      "status",
+      "created_at",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "station_code"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "场站"
+  },
+  "station_config_version": {
+    "pk": "config_version_id",
+    "fields": [
+      "station_id",
+      "effective_from",
+      "effective_to",
+      "capacity_dc_mwp",
+      "capacity_ac_mw",
+      "connection_limit_mw",
+      "tilt_deg",
+      "azimuth_deg",
+      "tracking_type",
+      "module_temp_coeff_per_c",
+      "array_layout_ref",
+      "source_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "revision_no",
+      "availability_basis"
+    ],
+    "keys": [
+      "station_id",
+      "effective_from"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ]
+    ],
+    "title": "场站配置版本"
+  },
+  "market_location": {
+    "pk": "market_location_id",
+    "fields": [
+      "location_code",
+      "location_name",
+      "location_type",
+      "market_code",
+      "parent_location_id",
+      "timezone",
+      "effective_from",
+      "effective_to",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "market_code",
+      "location_type",
+      "location_code"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "parent_location_id",
+        "market_location"
+      ]
+    ],
+    "title": "市场位置"
+  },
+  "station_market_binding": {
+    "pk": "binding_id",
+    "fields": [
+      "station_id",
+      "market_location_id",
+      "binding_role",
+      "effective_from",
+      "effective_to",
+      "mapping_basis",
+      "confirmed_status",
+      "recorded_at",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "station_id",
+      "binding_role",
+      "effective_from"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "market_location_id",
+        "market_location"
+      ]
+    ],
+    "title": "场站市场关系"
+  },
+  "weather_location": {
+    "pk": "weather_location_id",
+    "fields": [
+      "source_id",
+      "location_code",
+      "location_name",
+      "location_type",
+      "latitude",
+      "longitude",
+      "altitude_m",
+      "sensor_or_grid_ref",
+      "measurement_plane",
+      "timezone",
+      "status",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "source_id",
+      "location_code"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "source_id",
+        "data_source"
+      ]
+    ],
+    "title": "气象点位"
+  },
+  "station_weather_binding": {
+    "pk": "binding_id",
+    "fields": [
+      "station_id",
+      "weather_location_id",
+      "binding_role",
+      "distance_km",
+      "selection_method",
+      "effective_from",
+      "effective_to",
+      "confirmed_status",
+      "recorded_at",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "station_id",
+      "weather_location_id",
+      "binding_role",
+      "effective_from"
+    ],
+    "fact": false,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "weather_location_id",
+        "weather_location"
+      ]
+    ],
+    "title": "场站气象关系"
+  },
+  "station_actual": {
+    "pk": "actual_id",
+    "fields": [
+      "station_id",
+      "measurement_point_code",
+      "measurement_boundary",
+      "interval_start",
+      "interval_end",
+      "sampling_method",
+      "power_mw",
+      "generated_energy_mwh",
+      "export_energy_mwh",
+      "available_capacity_mw",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "station_id",
+      "measurement_point_code",
+      "measurement_boundary",
+      "interval_start",
+      "interval_end",
+      "sampling_method"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "场站实际出力"
+  },
+  "station_forecast_snapshot": {
+    "pk": "forecast_snapshot_id",
+    "fields": [
+      "station_id",
+      "measurement_boundary",
+      "forecast_type",
+      "issued_at",
+      "target_start",
+      "target_end",
+      "forecast_power_mw",
+      "forecast_energy_mwh",
+      "provider_model_name",
+      "provider_model_version",
+      "scenario_code",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "station_id",
+      "measurement_boundary",
+      "forecast_type",
+      "target_start",
+      "target_end",
+      "scenario_code"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "历史功率预测快照"
+  },
+  "weather_observation": {
+    "pk": "observation_id",
+    "fields": [
+      "weather_location_id",
+      "interval_start",
+      "interval_end",
+      "sampling_method",
+      "ghi_wm2",
+      "dni_wm2",
+      "dhi_wm2",
+      "poa_wm2",
+      "air_temperature_c",
+      "module_temperature_c",
+      "relative_humidity_pct",
+      "wind_speed_ms",
+      "wind_direction_deg",
+      "pressure_hpa",
+      "cloud_cover_pct",
+      "precipitation_mm",
+      "calibration_version",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "weather_location_id",
+      "interval_start",
+      "interval_end",
+      "sampling_method"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "weather_location_id",
+        "weather_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "气象实测"
+  },
+  "weather_forecast": {
+    "pk": "weather_forecast_id",
+    "fields": [
+      "weather_location_id",
+      "forecast_product",
+      "issued_at",
+      "target_start",
+      "target_end",
+      "forecast_method",
+      "ghi_wm2",
+      "dni_wm2",
+      "dhi_wm2",
+      "poa_wm2",
+      "air_temperature_c",
+      "relative_humidity_pct",
+      "wind_speed_ms",
+      "wind_direction_deg",
+      "cloud_cover_pct",
+      "low_cloud_pct",
+      "mid_cloud_pct",
+      "high_cloud_pct",
+      "precipitation_mm",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "weather_location_id",
+      "forecast_product",
+      "forecast_method",
+      "target_start",
+      "target_end"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "weather_location_id",
+        "weather_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "气象预报"
+  },
+  "station_operation_event": {
+    "pk": "event_revision_id",
+    "fields": [
+      "station_id",
+      "event_code",
+      "equipment_code",
+      "event_type",
+      "event_status",
+      "effective_start",
+      "effective_end",
+      "affected_capacity_mw",
+      "power_limit_mw",
+      "limit_semantics",
+      "reason_code",
+      "description",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "station_id",
+      "event_code"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "station_id",
+        "station"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "场站运行事件"
+  },
+  "market_supply_actual": {
+    "pk": "supply_actual_id",
+    "fields": [
+      "market_location_id",
+      "interval_start",
+      "interval_end",
+      "system_load_mw",
+      "solar_generation_mw",
+      "wind_generation_mw",
+      "conventional_generation_mw",
+      "import_power_mw",
+      "export_power_mw",
+      "pumped_storage_power_mw",
+      "storage_power_mw",
+      "aggregation_scope",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "market_location_id",
+      "aggregation_scope",
+      "interval_start",
+      "interval_end"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "market_location_id",
+        "market_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "实际供需"
+  },
+  "market_supply_forecast": {
+    "pk": "supply_forecast_id",
+    "fields": [
+      "market_location_id",
+      "product_type",
+      "issued_at",
+      "target_start",
+      "target_end",
+      "load_forecast_mw",
+      "solar_forecast_mw",
+      "wind_forecast_mw",
+      "import_plan_mw",
+      "export_plan_mw",
+      "conventional_available_capacity_mw",
+      "maintenance_capacity_mw",
+      "pumped_storage_plan_mw",
+      "storage_plan_mw",
+      "aggregation_scope",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "market_location_id",
+      "aggregation_scope",
+      "product_type",
+      "target_start",
+      "target_end"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "market_location_id",
+        "market_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "供需预测与计划"
+  },
+  "market_price": {
+    "pk": "price_id",
+    "fields": [
+      "market_location_id",
+      "interval_start",
+      "interval_end",
+      "market_stage",
+      "price_type",
+      "price_component",
+      "price_yuan_mwh",
+      "currency",
+      "is_final",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "market_location_id",
+      "interval_start",
+      "interval_end",
+      "market_stage",
+      "price_type",
+      "price_component"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "market_location_id",
+        "market_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "市场价格"
+  },
+  "market_operation_event": {
+    "pk": "event_revision_id",
+    "fields": [
+      "market_location_id",
+      "event_code",
+      "asset_code",
+      "event_type",
+      "effective_start",
+      "effective_end",
+      "affected_capacity_mw",
+      "constraint_value",
+      "constraint_unit",
+      "event_status",
+      "description",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "market_location_id",
+      "event_code"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "market_location_id",
+        "market_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "市场运行事件（选建）"
+  },
+  "weather_image": {
+    "pk": "image_id",
+    "fields": [
+      "weather_location_id",
+      "image_type",
+      "captured_at",
+      "object_uri",
+      "file_hash",
+      "image_width",
+      "image_height",
+      "calibration_version",
+      "source_id",
+      "batch_id",
+      "source_record_id",
+      "published_at",
+      "first_seen_at",
+      "available_at",
+      "availability_basis",
+      "source_version",
+      "revision_no",
+      "quality_flag",
+      "raw_record_ref",
+      "created_at"
+    ],
+    "keys": [
+      "source_id",
+      "weather_location_id",
+      "image_type",
+      "captured_at"
+    ],
+    "fact": true,
+    "refs": [
+      [
+        "weather_location_id",
+        "weather_location"
+      ],
+      [
+        "source_id",
+        "data_source"
+      ],
+      [
+        "batch_id",
+        "ingestion_batch"
+      ]
+    ],
+    "title": "气象图像（选建）"
+  },
+  "rule_version": {
+    "pk": "rule_version_id",
+    "fields": [
+      "market_code",
+      "rule_code",
+      "title",
+      "version",
+      "effective_from",
+      "effective_to",
+      "published_at",
+      "available_at",
+      "availability_basis",
+      "source_id",
+      "document_uri",
+      "content_hash",
+      "parameters_json",
+      "review_status",
+      "revision_no"
+    ],
+    "keys": [
+      "market_code",
+      "rule_code",
+      "effective_from"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "rule_version"
+  },
+  "calendar_day": {
+    "pk": "calendar_id",
+    "fields": [
+      "market_code",
+      "calendar_date",
+      "day_type",
+      "calendar_version",
+      "source_id",
+      "published_at",
+      "available_at",
+      "availability_basis",
+      "revision_no"
+    ],
+    "keys": [
+      "market_code",
+      "calendar_date"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "calendar_day"
+  },
+  "feature_snapshot": {
+    "pk": "snapshot_id",
+    "fields": [
+      "task",
+      "station_id",
+      "target_start",
+      "target_end",
+      "cutoff_at",
+      "created_at",
+      "feature_version",
+      "source_mode",
+      "payload_json",
+      "content_hash"
+    ],
+    "keys": [
+      "snapshot_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "feature_snapshot"
+  },
+  "feature_input": {
+    "pk": "input_id",
+    "fields": [
+      "snapshot_id",
+      "table_name",
+      "record_id",
+      "available_at",
+      "record_hash",
+      "payload_json"
+    ],
+    "keys": [
+      "input_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "feature_input"
+  },
+  "model_version": {
+    "pk": "model_version_id",
+    "fields": [
+      "model_name",
+      "version",
+      "task",
+      "artifact_uri",
+      "artifact_hash",
+      "training_start",
+      "training_end",
+      "trained_at",
+      "feature_version",
+      "label_version",
+      "parameters_json",
+      "metrics_json",
+      "status",
+      "source_mode",
+      "created_at"
+    ],
+    "keys": [
+      "model_version_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "model_version"
+  },
+  "prediction_run": {
+    "pk": "run_id",
+    "fields": [
+      "model_version_id",
+      "snapshot_id",
+      "task",
+      "station_id",
+      "market_location_id",
+      "cutoff_at",
+      "issued_at",
+      "available_at",
+      "target_start",
+      "target_end",
+      "baseline_run_id",
+      "status",
+      "source_mode",
+      "created_at"
+    ],
+    "keys": [
+      "run_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "prediction_run"
+  },
+  "prediction_value": {
+    "pk": "prediction_id",
+    "fields": [
+      "run_id",
+      "target_start",
+      "target_end",
+      "value",
+      "lower_value",
+      "upper_value",
+      "unit",
+      "quality_flag"
+    ],
+    "keys": [
+      "prediction_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "prediction_value"
+  },
+  "evaluation_run": {
+    "pk": "evaluation_id",
+    "fields": [
+      "run_id",
+      "label_cutoff_at",
+      "measurement_boundary",
+      "price_type",
+      "price_component",
+      "scorer_version",
+      "sample_count",
+      "status",
+      "source_mode",
+      "created_at"
+    ],
+    "keys": [
+      "evaluation_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "evaluation_run"
+  },
+  "evaluation_metric": {
+    "pk": "metric_id",
+    "fields": [
+      "evaluation_id",
+      "metric_name",
+      "metric_value",
+      "unit",
+      "sample_count"
+    ],
+    "keys": [
+      "metric_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "evaluation_metric"
+  },
+  "revenue_run": {
+    "pk": "revenue_run_id",
+    "fields": [
+      "station_id",
+      "rule_version_id",
+      "snapshot_id",
+      "period_start",
+      "period_end",
+      "scenario_name",
+      "status",
+      "source_mode",
+      "created_at"
+    ],
+    "keys": [
+      "revenue_run_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "revenue_run"
+  },
+  "revenue_item": {
+    "pk": "revenue_item_id",
+    "fields": [
+      "revenue_run_id",
+      "interval_start",
+      "interval_end",
+      "component",
+      "energy_mwh",
+      "price_yuan_mwh",
+      "amount_yuan",
+      "calculation_json"
+    ],
+    "keys": [
+      "revenue_item_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "revenue_item"
+  },
+  "agent_run": {
+    "pk": "agent_run_id",
+    "fields": [
+      "station_id",
+      "snapshot_id",
+      "model_name",
+      "prompt_version",
+      "question",
+      "status",
+      "started_at",
+      "finished_at",
+      "source_mode"
+    ],
+    "keys": [
+      "agent_run_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "agent_run"
+  },
+  "agent_tool_call": {
+    "pk": "tool_call_id",
+    "fields": [
+      "agent_run_id",
+      "tool_name",
+      "tool_version",
+      "input_json",
+      "output_json",
+      "status",
+      "started_at",
+      "finished_at"
+    ],
+    "keys": [
+      "tool_call_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "agent_tool_call"
+  },
+  "review_feedback": {
+    "pk": "feedback_id",
+    "fields": [
+      "prediction_id",
+      "agent_run_id",
+      "reviewer_id",
+      "feedback_type",
+      "reason",
+      "training_eligible",
+      "status",
+      "created_at"
+    ],
+    "keys": [
+      "feedback_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "review_feedback"
+  },
+  "iteration_candidate": {
+    "pk": "candidate_id",
+    "fields": [
+      "base_model_version_id",
+      "candidate_model_version_id",
+      "feedback_ids_json",
+      "hypothesis",
+      "evaluation_id",
+      "status",
+      "created_at"
+    ],
+    "keys": [
+      "candidate_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "iteration_candidate"
+  },
+  "approval_decision": {
+    "pk": "decision_id",
+    "fields": [
+      "candidate_id",
+      "reviewer_id",
+      "decision",
+      "reason",
+      "created_at"
+    ],
+    "keys": [
+      "decision_id"
+    ],
+    "fact": false,
+    "refs": [],
+    "title": "approval_decision"
+  }
+}

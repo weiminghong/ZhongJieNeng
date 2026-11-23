@@ -1,0 +1,17 @@
+[Unit]
+Description=CECEP persistent storage read-only API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ZhongJieNeng
+ExecStart=/bin/bash %h/ZhongJieNeng/scripts/start_storage.sh
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+UMask=0027
+
+[Install]
+WantedBy=default.target

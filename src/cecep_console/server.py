@@ -14,6 +14,7 @@ from plotly.offline import get_plotlyjs
 
 from .analysis import answer_question, dataset
 from .data import DATES, STATIONS, available_context
+from .storage_api import response as storage_response
 
 LOGGER = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -48,6 +49,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body((STATIC / filename).read_bytes(), mime)
             elif url.path == "/plotly.js":
                 self.send_body(get_plotlyjs().encode(), "text/javascript")
+            elif url.path.startswith("/api/storage/"):
+                self.send_json(storage_response(url.path, parse_qs(url.query)))
             elif url.path == "/api/health":
                 self.send_json({"status": "ok", "service": "cecep-agent-workbench"})
             elif url.path == "/api/context":
