@@ -5,7 +5,6 @@ import {
   ChartNoAxesCombined,
   Sparkles,
   ClipboardCheck,
-  ChevronDown,
   ChevronRight,
   CalendarDays,
   Building2,
@@ -79,7 +78,6 @@ export default function App() {
     source_mode: "synthetic",
   });
   const [tab, setTab] = useState<Tab>("forecast");
-  const [groups, setGroups] = useState({ business: true, governance: true });
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem("cecep-theme") === "high-contrast-light"
       ? "high-contrast-light"
@@ -316,24 +314,10 @@ export default function App() {
             ] as const
           ).map((group) => (
             <section className="admin-center-nav-group" key={group.id}>
-              <button
-                className="admin-center-section-toggle"
-                aria-expanded={groups[group.id]}
-                aria-controls={`nav-${group.id}`}
-                onClick={() =>
-                  setGroups((v) => ({ ...v, [group.id]: !v[group.id] }))
-                }
-              >
-                {group.title}
-                <ChevronDown
-                  size={15}
-                  className={groups[group.id] ? "is-expanded" : ""}
-                />
-              </button>
+              <div className="admin-center-section-toggle">{group.title}</div>
               <div
                 className="admin-center-subsection-list"
                 id={`nav-${group.id}`}
-                hidden={!groups[group.id]}
               >
                 {group.items.map((t) => (
                   <button

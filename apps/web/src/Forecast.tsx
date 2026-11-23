@@ -41,7 +41,7 @@ export default function Forecast({
     revision,
   );
   const [view, setView] = useState("single");
-  const [version, setVersion] = useState("2.0");
+  const [version, setVersion] = useState("");
   const [inferBusy, setInferBusy] = useState(false);
   const [inferError, setInferError] = useState("");
   const [runtimeId, setRuntimeId] = useState("");
@@ -57,7 +57,7 @@ export default function Forecast({
     finally { setInferBusy(false); }
   }
   const intervals = data?.intervals || [];
-  const chosen = compare.data?.versions.find((v) => v.version === version);
+  const chosen = compare.data?.versions.find((v) => v.run_id === version) ?? compare.data?.versions[0];
   const powerOption = useCallback((): EChartsOption => {
     const base = baseOption();
     const series = (
@@ -79,7 +79,7 @@ export default function Forecast({
       itemStyle: { color: color(token) },
     });
     const comparison: LineSeriesOption = {
-      ...series(`对比 v${version}`, "compare_forecast_mw", "data", true),
+      ...series(`对比 v${chosen?.version ?? "—"}`, "compare_forecast_mw", "data", true),
       data: chosen
         ? intervals.map(
             (r) =>
@@ -97,7 +97,7 @@ export default function Forecast({
         data: [
           "p10–p90 演示置信带",
           "晴空物理基线",
-          `对比 v${version}`,
+          `对比 v${chosen?.version ?? "—"}`,
           "日前主版本",
           "日内修正 · 新增信息",
           "实测",
@@ -339,11 +339,11 @@ export default function Forecast({
                 <div className="head-tools">
                   <select
                     aria-label="对比模型版本"
-                    value={version}
+                    value={chosen?.run_id ?? ""}
                     onChange={(e) => setVersion(e.target.value)}
                   >
                     {(compare.data?.versions || []).map((v) => (
-                      <option key={v.run_id} value={v.version}>
+                      <option key={v.run_id} value={v.run_id}>
                         {v.model_name} v{v.version}
                       </option>
                     ))}
@@ -427,7 +427,7 @@ export default function Forecast({
                     </thead>
                     <tbody>
                       {compare.data.versions.map((v) => (
-                        <tr key={v.run_id}>
+                        <tr key={v.run_id} className={chosen?.run_id === v.run_id ? "selected-row" : undefined}>
                           <td>
                             <strong>
                               {v.model_name} v{v.version}
@@ -460,10 +460,10 @@ export default function Forecast({
                           <td>{fmt(v.interval_coverage_pct)}</td>
                           <td>
                             <button
-                              onClick={() => setVersion(v.version)}
-                              aria-pressed={version === v.version}
+                              onClick={() => setVersion(v.run_id)}
+                              aria-pressed={chosen?.run_id === v.run_id}
                             >
-                              叠加对比
+                              {chosen?.run_id === v.run_id ? "已叠加" : "叠加对比"}
                             </button>
                           </td>
                         </tr>
