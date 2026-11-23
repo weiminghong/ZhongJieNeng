@@ -7,3 +7,8 @@ __pycache__/
 runtime/
 *.log
 .DS_Store
+apps/web/node_modules/
+apps/web/dist/
+*.egg-info/
+.impeccable/review/
+*.tsbuildinfo

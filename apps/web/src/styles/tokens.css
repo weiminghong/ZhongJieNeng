@@ -1,0 +1,39 @@
+/* Generated from DESIGN.md. Do not edit. */
+:root, [data-theme="standard-light"] {
+  --ce-color-background: #eef2f7;
+  --ce-color-surface: #ffffff;
+  --ce-color-surface-container: #f7f9fc;
+  --ce-color-on-surface: #172033;
+  --ce-color-on-surface-variant: #52627a;
+  --ce-color-outline: #d7dfeb;
+  --ce-color-primary: #1e5eff;
+  --ce-color-primary-container: #e8efff;
+  --ce-color-on-primary: #ffffff;
+  --ce-color-success: #0f766e;
+  --ce-color-success-container: #d9f6f1;
+  --ce-color-warning: #b45309;
+  --ce-color-warning-container: #fff4de;
+  --ce-color-error: #b42318;
+  --ce-color-error-container: #fee4e2;
+  --ce-color-data: #657991;
+  --ce-color-scrim: #17203366;
+}
+[data-theme="high-contrast-light"] {
+  --ce-color-background: #e5eaf1;
+  --ce-color-surface: #ffffff;
+  --ce-color-surface-container: #f1f4f8;
+  --ce-color-on-surface: #080f1c;
+  --ce-color-on-surface-variant: #344054;
+  --ce-color-outline: #8996a8;
+  --ce-color-primary: #1043c7;
+  --ce-color-primary-container: #e1e9ff;
+  --ce-color-on-primary: #ffffff;
+  --ce-color-success: #065b52;
+  --ce-color-success-container: #d5f2e9;
+  --ce-color-warning: #854000;
+  --ce-color-warning-container: #ffedc8;
+  --ce-color-error: #971b12;
+  --ce-color-error-container: #ffdedb;
+  --ce-color-data: #44556c;
+  --ce-color-scrim: #080f1c88;
+}

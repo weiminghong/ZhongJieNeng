@@ -20,6 +20,19 @@ TASKS = (
     "intraday_spread",
 )
 DEFAULT_DB = BASE.parents[1] / "runtime/data/cecep.sqlite3"
+UPPER_TABLES = {
+    "training_dataset_version",
+    "drift_check_run",
+    "model_lifecycle_event",
+    "contract_position",
+    "bidding_plan",
+    "bidding_plan_item",
+    "rag_document",
+    "rag_chunk",
+    "agent_session",
+    "agent_response",
+    "deviation_case",
+}
 
 
 def instant(value):
@@ -102,8 +115,16 @@ class Store:
         self.db.close()
 
     def initialize(self):
-        script = (BASE / "storage_sql/001_initial.sql").read_text()
-        checksum = hashlib.sha256(script.encode()).hexdigest()
+        migrations = []
+        for path in sorted((BASE / "storage_sql").glob("[0-9][0-9][0-9]_*.sql")):
+            script = path.read_text(encoding="utf-8")
+            migrations.append(
+                (
+                    int(path.name.split("_")[0]),
+                    script,
+                    hashlib.sha256(script.encode()).hexdigest(),
+                )
+            )
         self.db.execute("BEGIN IMMEDIATE")
         try:
             exists = self.db.execute(
@@ -113,40 +134,69 @@ class Store:
                 rows = self.db.execute(
                     "SELECT version,checksum FROM schema_migration"
                 ).fetchall()
-                if [(r["version"], r["checksum"]) for r in rows] != [(1, checksum)]:
+                known = {version: checksum for version, _, checksum in migrations}
+                if any(known.get(r["version"]) != r["checksum"] for r in rows):
                     raise ValueError(
                         "unsupported schema version or migration checksum changed"
                     )
-                self.db.commit()
-                return
-            if self.db.execute(
+                applied = {r["version"] for r in rows}
+                if applied != set(range(1, max(applied, default=0) + 1)):
+                    raise ValueError("migration sequence has gaps")
+            elif self.db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ).fetchone():
                 raise ValueError(
                     "refusing to initialize an unrecognized nonempty database"
                 )
-            self.db.execute(
-                "CREATE TABLE schema_migration(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL,applied_at TEXT NOT NULL)"
-            )
-            # execute complete statements without executescript's implicit transaction commit
-            statement = ""
-            for line in script.splitlines(True):
-                statement += line
-                if sqlite3.complete_statement(statement):
-                    self.db.execute(statement)
-                    statement = ""
-            if statement.strip():
-                raise ValueError("incomplete migration SQL")
-            self.db.execute(
-                "INSERT INTO schema_migration VALUES(1,?,?)",
-                (checksum, instant(datetime.now(timezone.utc))),
-            )
+            else:
+                self.db.execute(
+                    "CREATE TABLE schema_migration(version INTEGER PRIMARY KEY,checksum TEXT NOT NULL,applied_at TEXT NOT NULL)"
+                )
+                applied = set()
+            for version, script, checksum in migrations:
+                if version in applied:
+                    continue
+                statement = ""
+                for line in script.splitlines(True):
+                    statement += line
+                    if sqlite3.complete_statement(statement):
+                        self.db.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    raise ValueError("incomplete migration SQL")
+                self.db.execute(
+                    "INSERT INTO schema_migration VALUES(?,?,?)",
+                    (version, checksum, instant(datetime.now(timezone.utc))),
+                )
             self.db.commit()
         except BaseException:
             self.db.rollback()
             raise
 
     def append(self, table, row):
+        if table in UPPER_TABLES:
+            fields = self.db.execute(f"PRAGMA table_info({table})").fetchall()
+            spec = {r["name"] for r in fields}
+            pk = next(r["name"] for r in fields if r["pk"])
+            if not row or not set(row) <= spec or pk not in row:
+                raise ValueError("unknown or empty record fields")
+            record = {
+                k: instant(v) if v is not None and is_instant(k) else v
+                for k, v in row.items()
+            }
+            encoded(record)
+            old = self.db.execute(
+                f"SELECT * FROM {table} WHERE {pk}=?", (record[pk],)
+            ).fetchone()
+            if old:
+                if any(old[k] != v for k, v in record.items()):
+                    raise ValueError("conflicting immutable record")
+                return False
+            self.db.execute(
+                f"INSERT INTO {table} ({','.join(record)}) VALUES ({','.join('?' for _ in record)})",
+                list(record.values()),
+            )
+            return True
         if table not in CATALOG:
             raise ValueError("unknown storage table")
         allowed = set(CATALOG[table]["fields"]) | {CATALOG[table]["pk"]}
@@ -204,6 +254,15 @@ class Store:
             for table, rows in payload.items():
                 for row in rows:
                     count += self.append(table, row)
+            if (
+                count
+                and self.db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='serving_interval_wide'"
+                ).fetchone()
+            ):
+                from .serving import refresh_serving_tables
+
+                refresh_serving_tables(self)
         return count
 
     def as_of(
@@ -551,7 +610,13 @@ class Store:
             ).fetchone()[0],
             "tables": {
                 t: self.db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-                for t in CATALOG
+                for t in list(CATALOG)
+                + sorted(UPPER_TABLES)
+                + [
+                    "serving_interval_wide",
+                    "serving_daily_kpi",
+                    "serving_version_compare",
+                ]
                 if t in tables
             },
             "integrity": self.db.execute("PRAGMA integrity_check").fetchone()[0],

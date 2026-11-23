@@ -1,0 +1,22 @@
+/* Generated from DESIGN.md. Do not edit. */
+@import "tailwindcss";
+@theme {
+  --color-*: initial;
+  --color-background: var(--ce-color-background);
+  --color-surface: var(--ce-color-surface);
+  --color-surface-container: var(--ce-color-surface-container);
+  --color-on-surface: var(--ce-color-on-surface);
+  --color-on-surface-variant: var(--ce-color-on-surface-variant);
+  --color-outline: var(--ce-color-outline);
+  --color-primary: var(--ce-color-primary);
+  --color-primary-container: var(--ce-color-primary-container);
+  --color-on-primary: var(--ce-color-on-primary);
+  --color-success: var(--ce-color-success);
+  --color-success-container: var(--ce-color-success-container);
+  --color-warning: var(--ce-color-warning);
+  --color-warning-container: var(--ce-color-warning-container);
+  --color-error: var(--ce-color-error);
+  --color-error-container: var(--ce-color-error-container);
+  --color-data: var(--ce-color-data);
+  --color-scrim: var(--ce-color-scrim);
+}

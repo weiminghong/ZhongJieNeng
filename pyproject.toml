@@ -9,6 +9,9 @@ description = "光伏量价预测业务展示与 Agent 分析工作台"
 requires-python = ">=3.11"
 dynamic = ["dependencies"]
 
+[project.optional-dependencies]
+test = ["httpx>=0.28,<1"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 

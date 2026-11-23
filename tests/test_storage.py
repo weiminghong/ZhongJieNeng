@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from cecep_console.storage import Store, instant, CATALOG, digest, encoded
 from cecep_console.storage_demo import seed_demo
@@ -26,7 +27,7 @@ class StorageTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.tmp.name) / "test.sqlite")
-        with sqlite3.connect(self.fixture_db) as source:
+        with closing(sqlite3.connect(self.fixture_db)) as source:
             source.backup(self.store.db)
 
     def tearDown(self):
@@ -238,7 +239,7 @@ class StorageTests(unittest.TestCase):
                     *args, "2026-11-20T00:00:00Z", allow_synthetic=True
                 )
             ),
-            96,
+            384,  # Original scenario plus three independently versioned day-ahead runs.
         )
 
     def test_invalid_prediction_snapshot_link_rejected(self):

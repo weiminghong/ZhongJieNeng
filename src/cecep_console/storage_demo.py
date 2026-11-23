@@ -461,6 +461,8 @@ def seed_demo(store):
                                     sample_count=len(errors),
                                 ),
                             )
+    from .storage_demo_upper import seed_upper_demo
+    added += seed_upper_demo(store)
     return {
         "inserted": added,
         "source": "synthetic",

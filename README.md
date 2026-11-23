@@ -1,92 +1,51 @@
-# 中节能光伏交易 Agent 工作台
+# 中节能光储交易 Agent 工作台 v1
 
-项目分为模型训练、Agent 业务展示、RSI 迭代三个建设方向。当前版本完成业务展示和本地数据分析入口，训练与 RSI 页列出待接入内容。
+基于既有 SQLite PIT 底座的联库工作台：预测与版本对比、原始数据与血缘、申报策略与收益、双通道 Agent、偏差审核与 RSI。新版由 FastAPI + React 19 / TypeScript / Vite 6 / Tailwind 4 / ECharts 提供，GB10 入口为 **http://10.21.179.91:8503**。
 
-## 当前入口
+所有现有时序、演示模型与参考规则均为 **synthetic 合成演示**。模型名称不代表已训练 LightGBM；生产数据、正式市场规则和真实模型训练尚未接入。配置外部模型是可选项，默认 `deterministic_tools_only`，不会伪装连接大模型。
 
-默认入口直接复用 `vendor/ai-energy-trading-platform` 的 7 页 HTML 驾驶舱和 22 个 Plotly 图表。自有 `src/cecep_console` 页面保留作为真实场站数据接入后的扩展入口，当前不会作为默认服务。
+## 结构与合同
 
-启动脚本先运行上游项目的 `main.py --export`，再把上游项目目录作为静态资源提供服务。这样甲方先看到现成驾驶舱中的预测、价格、收入、偏差、风险和发电页面。
+- `src/cecep_console/storage_sql/001_initial.sql`：原 34 张表，不修改；`002_upper_layers.sql`：11 张上层业务表、3 张 serving 宽表与 FTS5。迁移顺序执行并校验历史 checksum。
+- `serving.py`：L1/PIT 联合生成 96 点、日 KPI 和同 cutoff 版本比较。普通页面直读 serving，回放实时调用 `Store.as_of` / `Store.predictions`。训练禁止读取 serving 表。
+- `trading.py`：确定性结算。合同 + 日前现货 + 实时偏差 − 超免考考核 = 净收益；只结算实测和价格齐备的时段。演示 ±5% 容量免考及 70% 锁价示例不代表浙江正式规则。
+- `agent_service.py`：通道 1 包含五个数据库/计算工具；通道 2 为 FTS5 BM25 + 中文 bigram TF-IDF。问答、输入证据快照、工具调用和引用全部持久化。日内/复盘知识检索使用当前知识时点，回放知识也受 cutoff 限制。
+- `rsi.py`：人工确认反馈、案例沉淀、审批与回滚均采用追加式记录。演示审批改变注册状态及展示主版本，不会触发真实训练。
+- `api.py`：统一 `/api/v1/*` 与兼容 `/api/storage/*`；`apps/web/dist` 同源提供 SPA。`DESIGN.md` 为唯一颜色事实源。
 
-## 上游驾驶舱内容
+定稿架构参考：[底层到上层全栈架构设计](design/全栈系统架构与底层到上层设计方案.md)。本次明确选择 Vite SPA 实现其业务合同；不部署 Next.js、向量模型或新的训练任务。
 
-- 执行概览：KPI、日发电量、收入走势
-- 市场分析：价格热力图、峰谷价差、电价趋势
-- 电站表现：容量因子、限电影响、天气辐照
-- 收入分析：瀑布图、构成、月度对比
-- 预测精度：准确率、预测与实际散点、天气分组
-- 偏差分析：偏差散点、考核率、偏差分布
-- AI 助手：上游预留入口
-
-这些页面使用上游仓库自带的 90 天模拟数据，不代表中节能真实数据。
-
-## 自有扩展页面
-
-| 页面 | 业务内容 |
-| --- | --- |
-| 运行总览 | 已实测电量、同期预测、配对误差、重点时段 |
-| 原始数据 | 分时实发、预测、天气、市场价格、缺失状态、搜索与 CSV 导出 |
-| 发电预测 | 日前功率、日内修正、实发和晴空物理基线，同样本修正对比 |
-| 电价与价差 | 日前预测与出清、实时预测与实绩、实时减日前价差 |
-| 偏差分析 | 预测残差、气象关联和重点时段 |
-| Agent 分析 | 调用本地数据与评估工具回答业务问题，显示分析范围和工具链 |
-
-Agent 当前是本地工具路由，尚未连接大语言模型。页面中的预测为合成场景，模型名称 `demo-scenario-v1` 是场景版本。10 号服务器 `energy_poc` 的读取权限尚未开放，真实数据和模型尚未迁移。
-
-## 数据口径
-
-- 两个演示场站的容量参考项目材料，时序值全部为合成数据。
-- 固定演示时钟为北京时间 2026-11-20 14:00。提供 11 月 19 日历史、20 日日内、21 日未来三种状态。
-- 15 分钟时段以区间起点标注，区间结束后才出现实际功率和实时价格。未来实际值保持空值。
-- 功率单位 MW，电量按有效时段功率乘 0.25 小时累加，单位 MWh。
-- 预测误差只统计实测已到达的配对时段。日内修正对比只统计原预测、修正值和实发均存在的同一批时段。
-- 电价单位元/MWh，价差定义为实时价格减日前出清价格。
-- 天气关联用于人工分析线索，未进行因果判定。
-
-## 开源集成
-
-上游代码固定为 Git 子模块，无需复制修改。
-
-| 项目 | 调用位置 | 用途 |
-| --- | --- | --- |
-| solar-forecast | `adapters.solar_components`、`data.records` | 计算采用上海时区的场站晴空物理功率基线 |
-| AI Energy Trading Platform | `adapters.evaluate_predictions` | 使用上游 `ModelEvaluator` 计算配对 MAE/RMSE |
-| Plotly.js | 服务器 `/plotly.js` | 本地加载可交互曲线、柱图和散点图 |
-
-界面结构重新设计，借鉴上游的预测、市场与偏差分析分类。许可与使用说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-## 本地开发
+## 本地构建与测试
 
 ```bash
-git submodule update --init
 python -m venv .venv
-# Windows 使用 .venv/Scripts/python；Linux 使用 .venv/bin/python
-.venv/bin/python -m pip install -e .
-.venv/bin/python -m cecep_console.server --host 127.0.0.1 --port 8501
-```
-
-打开 `http://127.0.0.1:8501`。页面资源全部由本地服务提供。
-
-```bash
+# Windows: .venv/Scripts/python.exe；Linux: .venv/bin/python
+.venv/bin/python -m pip install -e ".[test]"
+node scripts/generate_design_tokens.mjs
+npm --prefix apps/web ci
+npm --prefix apps/web run build
 .venv/bin/python -m unittest discover -s tests -v
-node --check src/cecep_console/static/app.js
 ```
 
-## 部署到 GB10
+测试使用独立临时 SQLite 库，覆盖旧版 001 升级、checksum、PIT 防穿越、serving 路由、手算结算、RAG/RSI、审批回滚、完整 API 读写与 provider 失败审计。`apps/web/dist` 和 `node_modules` 不进入 Git。
 
-从 GitHub 拉取已验证的提交，在服务器项目专用环境安装依赖并运行 `scripts/start.sh`。部署前确认端口空闲，不修改其他任务。
+## GB10 发布
 
-```bash
-git clone --branch codex/agent-workbench https://github.com/weiminghong/ZhongJieNeng.git
-cd ZhongJieNeng
-git submodule update --init
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
-./scripts/start.sh
+唯一发布目录 `/home/priv/ZhongJieNeng`，分支 `codex/agent-workbench`。源码提交推送后，使用本机既有 paramiko：
+
+```powershell
+# CECEP_GB10_PASSWORD 通过会话环境或秘密输入提供，不写入文件
+python scripts/sync_gb10.py
 ```
 
-`runtime/` 保存项目日志和临时缓存，已排除在 Git 之外。凭据通过既有 SSH 认证提供，不保存在代码中。
+脚本验证远端工作树，fast-forward 到本地已验证 commit；在线备份旧 SQLite；安装依赖；校验每个 dist 文件的 SHA256 后切换；执行增量迁移与幂等 seed；仅重启 `cecep-storage.service`。随后进行真实 HTTP、Agent、审核入库、FTS5 命中、审批回滚与数据库完整性验收，结果写入被忽略的 `runtime/gb10-deploy-receipt.json`。`--verify-only` 跳过部署，仍执行包含合成反馈写入和审批回滚的完整验收。
 
-## GB10 持久化存储
+服务入口仍为 `scripts/start_storage.sh`，默认监听 8503。原 8501 驾驶舱与 8502 中文 Evidently 报告服务保留，不修改其启动或代码。远端第三方子模块的既存改动不覆盖。
 
-现已实现 34 张业务表的 SQLite 存储、五种预测任务的时点查询、输入快照与只读数据库 API。新服务默认端口 8503；旧展示页仍使用演示逻辑，尚未改为读取该库。建库、导入、分层和验证见[数据库实施与使用](design/数据库实施与使用.md)。真实数据及训练尚未接入。
+## 可选外部摘要器
+
+通过服务环境配置 `CECEP_LLM_API_KEY`、`CECEP_LLM_BASE_URL`（默认 OpenAI v1）、`CECEP_LLM_MODEL`。模型只返回既有证据句的选择顺序，数值由工具计算并约束，失败返回 502 与 `provider_failed`，失败记录仍保存。未提供密钥时保持确定性工具模式。当前版本不声称完成外部 provider 的生产验收。
+
+## 展示口径
+
+北京时间（Asia/Shanghai），15 分钟区间起点标时；功率 MW、电量 MWh、电价元/MWh，价差为 RT−DA。合成数据时钟固定 2026-11-20 14:00。真实零值、应到缺测、未来待到达分开显示。日前版本比较固定同 cutoff 与共同实测样本；日内修正明确标为新增信息。漂移告警是演示 fixture，不能当成 Evidently 的实测结论；外部报告链接状态与漂移示例分别标识。
