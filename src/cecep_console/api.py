@@ -9,7 +9,11 @@ import sqlite3
 from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from urllib.parse import urlsplit
+from .model_settings import public_settings, save_settings, test_connection, ProviderError
 from .storage import Store, CATALOG, instant
 from . import storage_api
 from .serving import (
@@ -55,6 +59,17 @@ class Scope(BaseModel):
 class AgentQuery(Scope):
     question: str = Field(min_length=1, max_length=2000)
     session_id: str | None = None
+
+
+class ModelSettingsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool | None = None
+    base_url: str | None = Field(default=None, max_length=2000)
+    model: str | None = Field(default=None, max_length=200)
+    api_key: SecretStr | None = None
+    clear_api_key: bool = False
+    timeout_seconds: int | None = Field(default=None, ge=5, le=120)
+    max_output_tokens: int | None = Field(default=None, ge=128, le=4096)
 
 
 class Feedback(BaseModel):
@@ -140,6 +155,45 @@ def create_app():
 
     app = FastAPI(title="中节能光伏交易工作台", version="1.0.0", lifespan=lifespan)
 
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, exc):
+        if request.url.path.startswith("/api/v1/settings/"):
+            # Validation errors must never echo a submitted credential or body.
+            return JSONResponse(status_code=422, content={"error": "配置项格式或范围无效，请检查表单"})
+        return await request_validation_exception_handler(request, exc)
+
+    def settings_origin(request):
+        origin = request.headers.get("origin")
+        if request.headers.get("x-cecep-settings") != "1" or (
+            origin and urlsplit(origin).netloc != request.headers.get("host")
+        ):
+            raise HTTPException(403, "请从本站模型配置页面操作")
+
+    @app.get("/api/v1/settings/llm")
+    def get_model_settings():
+        return JSONResponse(public_settings(), headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/v1/settings/llm")
+    def update_model_settings(body: ModelSettingsInput, request: Request):
+        settings_origin(request)
+        changes = body.model_dump(exclude_none=True)
+        if body.api_key is not None:
+            changes["api_key"] = body.api_key.get_secret_value()
+        return JSONResponse(save_settings(changes), headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/v1/settings/llm/test")
+    def check_model_connection(request: Request):
+        settings_origin(request)
+        try:
+            result = test_connection()
+            return JSONResponse(result, headers={"Cache-Control": "no-store"})
+        except ProviderError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={"status": "failed", "error": "模型连接或证据约束测试失败", "code": exc.code},
+                headers={"Cache-Control": "no-store"},
+            )
+
     @app.exception_handler(ValueError)
     async def bad_input(request, exc):
         return JSONResponse(
@@ -189,11 +243,8 @@ def create_app():
             "models": model_states(store),
             "timezone": "Asia/Shanghai",
             "interval_minutes": 15,
-            "llm_mode": (
-                "openai_compatible_evidence_summary"
-                if os.environ.get("CECEP_LLM_API_KEY")
-                else "deterministic_tools_only"
-            ),
+            "llm_mode": public_settings()["llm_mode"],
+            "llm_model": public_settings()["model"],
             "evidently": {
                 "report_url": os.environ.get(
                     "CECEP_EVIDENTLY_URL", "http://10.21.179.91:8502"
@@ -404,6 +455,10 @@ def create_app():
     def spa(path: str):
         if path.startswith("api/"):
             raise HTTPException(404, "接口不存在")
+        if path in {"settings", "settings/"}:
+            if (dist / "settings.html").is_file():
+                return FileResponse(dist / "settings.html")
+            raise HTTPException(503, "模型配置页面尚未构建")
         target = (dist / path).resolve()
         if not target.is_relative_to(dist.resolve()):
             raise HTTPException(404, "资源不存在")

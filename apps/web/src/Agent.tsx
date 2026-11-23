@@ -6,6 +6,7 @@ import {
   Wrench,
   BookOpen,
   History,
+  Settings2,
 } from "lucide-react";
 import type { Scope, AgentAnswer } from "./types";
 import { request, useResource, time } from "./api";
@@ -71,6 +72,7 @@ export default function Agent({
           <h2>双通道 Agent 副驾驶</h2>
           <p>结构化数据走 SQL 与确定性计算，业务知识走 FTS5 + TF-IDF 检索。</p>
         </div>
+        <a className="button" href="/settings"><Settings2 size={15} />模型配置</a>
       </div>
       <div className="agent-context">
         <span className="badge info">{scope.station_id}</span>

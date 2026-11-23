@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--host", default="10.21.179.91")
     parser.add_argument("--user", default="priv")
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--release-manifest", type=Path)
     args = parser.parse_args()
     head = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
@@ -43,6 +44,20 @@ def main():
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "checks": [],
     }
+    release = None
+    dist = ROOT / "apps/web/dist"
+    if args.release_manifest:
+        manifest_path = args.release_manifest.resolve()
+        if not manifest_path.is_relative_to((ROOT / "runtime").resolve()):
+            raise RuntimeError("Release manifest must be inside project runtime")
+        release = json.loads(manifest_path.read_text(encoding="utf-8"))
+        tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True).strip()
+        if release["tree"] != tree:
+            raise RuntimeError("Release was not built from the committed source tree")
+        dist = Path(release["dist_dir"]).resolve()
+        if not dist.is_relative_to((ROOT / "runtime").resolve()):
+            raise RuntimeError("Verified dist must be inside project runtime")
+        receipt["build_source_tree"] = tree
     client = paramiko.SSHClient()
     client.load_system_host_keys()
     # Explicitly selected private GB10 endpoint. Unknown keys are accepted for this
@@ -123,11 +138,11 @@ def main():
             "ss -ltn '( sport = :8501 or sport = :8502 )'"
         )
         if not args.verify_only:
-            subprocess.run(
-                ["git", "diff", "--quiet", "--ignore-submodules"], cwd=ROOT, check=True
-            )
-            subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ROOT, check=True)
-            dist = ROOT / "apps/web/dist"
+            if release is None:
+                subprocess.run(
+                    ["git", "diff", "--quiet", "--ignore-submodules"], cwd=ROOT, check=True
+                )
+                subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ROOT, check=True)
             if not (dist / "index.html").is_file():
                 raise RuntimeError("Build apps/web before deploying")
             files = {
@@ -139,6 +154,8 @@ def main():
                 if p.is_file()
             }
             receipt["dist_files"] = files
+            if release is not None and release["files"] != files:
+                raise RuntimeError("Verified release artifact hashes no longer match")
             run(
                 f'cd {REMOTE} && test "$(pwd -P)" = {REMOTE} && git diff --quiet --ignore-submodules && git diff --cached --quiet && git fetch origin {BRANCH} && test "$(git rev-parse origin/{BRANCH})" = {head} && git merge --ff-only origin/{BRANCH}'
             )
@@ -161,7 +178,7 @@ def main():
             with client.open_sftp() as sftp:
                 for rel in files:
                     # Vite emits only index + assets; no arbitrary path traversal.
-                    if not re.fullmatch(r"(index\.html|assets/[A-Za-z0-9_.-]+)", rel):
+                    if not re.fullmatch(r"((?:index|settings)\.html|assets/[A-Za-z0-9_.-]+)", rel):
                         raise RuntimeError("Unexpected dist path: " + rel)
                     sftp.put(str(dist / rel), staging + "/" + rel)
             check_code = (
@@ -216,15 +233,29 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
         for asset in assets:
             content = http(asset)
-            local = ROOT / "apps/web/dist" / asset.removeprefix("/")
+            local = dist / asset.removeprefix("/")
             assert local.is_file() and hashlib.sha256(content).hexdigest() == sha(
                 local
             ), asset
         receipt["spa_fallback"] = b'<div id="root">' in http("/workbench/forecast")
+        settings_html = http("/settings").decode()
+        assert 'src="/assets/' in settings_html
+        for asset in re.findall(r'(?:src|href)="(/assets/[^"]+)"', settings_html):
+            local = dist / asset.removeprefix("/")
+            assert local.is_file() and hashlib.sha256(http(asset)).hexdigest() == sha(local)
+        model_settings = api("/api/v1/settings/llm")
+        assert "api_key" not in model_settings
+        receipt["model_settings"] = {
+            "model": model_settings["model"],
+            "ready": model_settings["ready"],
+            "api_key_configured": model_settings["api_key_configured"],
+        }
         bootstrap = api("/api/v1/workbench/bootstrap")
         assert (
             len(bootstrap["stations"]) == 2
-            and bootstrap["llm_mode"] == "deterministic_tools_only"
+            and bootstrap["llm_mode"] in (
+                "deterministic_tools_only", "openai_compatible_evidence_summary"
+            )
         )
         overview = api("/api/v1/workbench/overview")
         assert len(overview["intervals"]) == 96 and "serving_" in overview["query_path"]
@@ -295,7 +326,7 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
             {"question": "部署验收：偏差免考和合约收益有哪些依据？"},
         )
         assert (
-            agent["llm_mode"] == "deterministic_tools_only"
+            agent["llm_mode"] == bootstrap["llm_mode"]
             and len(agent["tool_calls"]) == 6
             and agent["grounded_check_passed"]
         )

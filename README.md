@@ -44,7 +44,11 @@ python scripts/sync_gb10.py
 
 ## 可选外部摘要器
 
-通过服务环境配置 `CECEP_LLM_API_KEY`、`CECEP_LLM_BASE_URL`（默认 OpenAI v1）、`CECEP_LLM_MODEL`。模型只返回既有证据句的选择顺序，数值由工具计算并约束，失败返回 502 与 `provider_failed`，失败记录仍保存。未提供密钥时保持确定性工具模式。当前版本不声称完成外部 provider 的生产验收。
+打开 `/settings`，或从 Agent 页进入“模型配置”，设置 OpenAI 兼容 Base URL、模型 ID、API Key、启用状态与请求参数。默认模型 ID 为 `qwen3.8-27b`，地址需与密钥所属区域和服务控制台一致。保存后立即对后续 Agent 请求生效，无需重启。先保存，再使用“测试已保存的连接”发送一次最小真实请求；保存成功不等于连接已验证。
+
+密钥只写入被忽略的 `runtime/private/llm-settings.json`（目录 0700、文件 0600）；可通过 `CECEP_LLM_SETTINGS_PATH` 指定私有位置。配置 GET 仅返回是否已保存，不返回密钥；页面留空保留原密钥，移除需要显式勾选。密钥不进入业务数据库、构建产物或部署收据。本站配置写接口检查同源 Origin 和专用请求头，沿用项目内网部署范围。
+
+尚无私有配置文件时，可从服务环境读取 `CECEP_LLM_API_KEY`、`CECEP_LLM_BASE_URL` 和 `CECEP_LLM_MODEL`；私有文件保存后优先使用页面配置。不开启外部模型时保持 `deterministic_tools_only`。模型只返回既有证据句的选择顺序，数值由工具计算并约束；失败返回 502 与 `provider_failed`，失败记录仍保存。配置不下载模型、不训练权重，也不构成业务预测效果证明。
 
 ## 展示口径
 

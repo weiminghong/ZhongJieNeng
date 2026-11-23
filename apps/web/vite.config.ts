@@ -6,6 +6,10 @@ export default defineConfig({
   server: { proxy: { "/api": "http://127.0.0.1:8503" } },
   build: {
     rollupOptions: {
+      input: {
+        main: "index.html",
+        settings: "settings.html",
+      },
       output: {
         manualChunks: { charts: ["echarts"], react: ["react", "react-dom"] },
       },
