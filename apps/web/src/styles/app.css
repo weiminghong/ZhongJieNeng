@@ -1167,7 +1167,7 @@ pre {
 }
 @media (max-width: 1000px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto 1fr;
   }
   .global-header {
@@ -1196,8 +1196,8 @@ pre {
     width: 100%;
   }
   .sidebar {
-    position: sticky;
-    top: 0;
+    position: relative;
+    top: auto;
     z-index: 20;
     height: auto;
     padding: 6px 10px;
@@ -1212,6 +1212,8 @@ pre {
     display: flex;
     overflow: auto;
     gap: 4px;
+    width: 100%;
+    min-width: 0;
   }
   .nav-item {
     width: auto;

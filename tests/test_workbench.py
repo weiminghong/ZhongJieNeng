@@ -25,6 +25,7 @@ from cecep_console.rsi import (
     ingest_feedback,
     approve_model,
     model_states,
+    rsi_overview,
 )
 from cecep_console.api import create_app
 
@@ -224,6 +225,31 @@ class WorkbenchTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.store.db.execute("DELETE FROM rag_chunk")
         self.assertEqual(self.store.inspect()["foreign_key_errors"], [])
+
+    def test_replay_hides_later_governance_events_and_model_promotion(self):
+        cutoff = instant("2026-11-20T09:00:00+08:00")
+        before = build_intervals(
+            self.store, "lanneng", "2026-11-20", cutoff, registry_cutoff=cutoff
+        )
+        with self.store.db:
+            approve_model(
+                self.store, "demo-candidate-v2.2", "approve", "回放状态隔离验证"
+            )
+        after = build_intervals(
+            self.store, "lanneng", "2026-11-20", cutoff, registry_cutoff=cutoff
+        )
+        self.assertEqual(
+            [r["da_forecast_mw"] for r in before],
+            [r["da_forecast_mw"] for r in after],
+        )
+        governance = rsi_overview(self.store, "lanneng", "2026-11-20", cutoff=cutoff)
+        self.assertEqual(governance["cases"], [])
+        self.assertEqual(governance["lifecycle"], [])
+        self.assertEqual(governance["candidates"], [])
+        states = {
+            m["model_version_id"]: m["effective_status"] for m in governance["models"]
+        }
+        self.assertEqual(states["lgbm-demo-v2.1"], "production")
 
     def test_api_all_reads_and_performance_route(self):
         with TestClient(create_app()) as client:

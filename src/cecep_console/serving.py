@@ -42,7 +42,9 @@ def metrics(actual, predicted):
     }
 
 
-def build_intervals(store, station_id, day, cutoff, source_mode="synthetic"):
+def build_intervals(
+    store, station_id, day, cutoff, source_mode="synthetic", *, registry_cutoff=None
+):
     """PIT path. Every displayed input and prediction is cut off before joining."""
     start, end = day_bounds(day)
     cutoff = instant(cutoff)
@@ -140,7 +142,7 @@ def build_intervals(store, station_id, day, cutoff, source_mode="synthetic"):
     active = next(
         (
             m["model_version_id"]
-            for m in model_states(store)
+            for m in model_states(store, registry_cutoff)
             if m["model_name"] == "lgbm-demo"
             and m["source_mode"] == source_mode
             and m["effective_status"] == "production"

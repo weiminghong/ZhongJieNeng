@@ -2,16 +2,18 @@
 
 import json
 from uuid import uuid4
-from .storage import encoded, digest
+from .storage import encoded, digest, instant
 from .serving import rows, now, day_bounds
 
 
-def model_states(store):
+def model_states(store, cutoff=None):
+    cutoff = instant(cutoff) if cutoff else now()
     result = rows(store, "SELECT * FROM model_version ORDER BY model_name,version")
+    result = [m for m in result if m["created_at"] <= cutoff]
     for model in result:
         event = store.db.execute(
-            "SELECT * FROM model_lifecycle_event WHERE model_version_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-            (model["model_version_id"],),
+            "SELECT * FROM model_lifecycle_event WHERE model_version_id=? AND created_at<=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            (model["model_version_id"], cutoff),
         ).fetchone()
         model["effective_status"] = event["to_status"] if event else model["status"]
         model["trained"] = bool(
@@ -214,17 +216,18 @@ def approve_model(store, candidate_id, action, reason, reviewer_id="operator"):
     }
 
 
-def rsi_overview(store, station_id, day, source_mode="synthetic"):
+def rsi_overview(store, station_id, day, source_mode="synthetic", cutoff=None):
+    cutoff = instant(cutoff) if cutoff else now()
     start, end = day_bounds(day)
     cases = rows(
         store,
-        "SELECT * FROM deviation_case WHERE station_id=? AND interval_start>=? AND interval_end<=? AND source_mode=? ORDER BY abs(error_value) DESC",
-        (station_id, start, end, source_mode),
+        "SELECT * FROM deviation_case WHERE station_id=? AND interval_start>=? AND interval_end<=? AND source_mode=? AND created_at<=? AND interval_end<=? ORDER BY abs(error_value) DESC",
+        (station_id, start, end, source_mode, cutoff, cutoff),
     )
     for case in cases:
         feedback = store.db.execute(
-            "SELECT f.* FROM review_feedback f JOIN prediction_value p USING(prediction_id) WHERE p.run_id=? AND p.target_start=? ORDER BY f.created_at DESC,f.rowid DESC LIMIT 1",
-            (case["prediction_run_id"], case["interval_start"]),
+            "SELECT f.* FROM review_feedback f JOIN prediction_value p USING(prediction_id) WHERE p.run_id=? AND p.target_start=? AND f.created_at<=? ORDER BY f.created_at DESC,f.rowid DESC LIMIT 1",
+            (case["prediction_run_id"], case["interval_start"], cutoff),
         ).fetchone()
         case["feedback"] = dict(feedback) if feedback else None
         case["effective_status"] = "confirmed" if feedback else case["status"]
@@ -232,23 +235,25 @@ def rsi_overview(store, station_id, day, source_mode="synthetic"):
             "rsi-feedback-" + feedback["feedback_id"]
             if feedback
             and store.db.execute(
-                "SELECT 1 FROM rag_document WHERE doc_id=?",
-                ("rsi-feedback-" + feedback["feedback_id"],),
+                "SELECT 1 FROM rag_document WHERE doc_id=? AND created_at<=?",
+                ("rsi-feedback-" + feedback["feedback_id"], cutoff),
             ).fetchone()
             else None
         )
     return {
         "cases": cases,
-        "models": [m for m in model_states(store) if m["source_mode"] == source_mode],
+        "models": [
+            m for m in model_states(store, cutoff) if m["source_mode"] == source_mode
+        ],
         "candidates": rows(
             store,
-            "SELECT c.* FROM iteration_candidate c JOIN model_version m ON m.model_version_id=c.candidate_model_version_id WHERE m.source_mode=?",
-            (source_mode,),
+            "SELECT c.* FROM iteration_candidate c JOIN model_version m ON m.model_version_id=c.candidate_model_version_id WHERE m.source_mode=? AND c.created_at<=?",
+            (source_mode, cutoff),
         ),
         "lifecycle": rows(
             store,
-            "SELECT e.* FROM model_lifecycle_event e JOIN model_version m USING(model_version_id) WHERE m.source_mode=? ORDER BY e.created_at DESC,e.rowid DESC",
-            (source_mode,),
+            "SELECT e.* FROM model_lifecycle_event e JOIN model_version m USING(model_version_id) WHERE m.source_mode=? AND e.created_at<=? ORDER BY e.created_at DESC,e.rowid DESC",
+            (source_mode, cutoff),
         ),
         "source_mode": source_mode,
     }

@@ -85,7 +85,14 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
     station, day = scope["station_id"], scope["date"]
     mode = scope.get("source_mode", "synthetic")
     cutoff = instant(scope.get("cutoff_at") or data_clock(store, mode))
-    intervals = build_intervals(store, station, day, cutoff, mode)
+    intervals = build_intervals(
+        store,
+        station,
+        day,
+        cutoff,
+        mode,
+        registry_cutoff=cutoff if scope.get("mode") == "replay" else None,
+    )
     selected = scope.get("selected_interval")
     focus = (
         [r for r in intervals if r["interval_start"] == selected]

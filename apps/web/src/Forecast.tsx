@@ -66,6 +66,20 @@ export default function Forecast({
     };
     return {
       ...base,
+      legend: {
+        top: 4,
+        type: "scroll",
+        textStyle: { color: color("on-surface-variant"), fontSize: 11 },
+        data: [
+          "p10–p90 演示置信带",
+          "晴空物理基线",
+          `对比 v${version}`,
+          "日前主版本",
+          "日内修正 · 新增信息",
+          "实测",
+          "超±5%容量偏差",
+        ],
+      },
       xAxis: {
         ...base.xAxis,
         data: intervals.map((r) => time(r.interval_start)),

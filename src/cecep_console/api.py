@@ -95,7 +95,12 @@ def overview(store, scope):
     cutoff = resolve_scope(scope, store)
     if scope.mode == "replay":
         intervals = build_intervals(
-            store, scope.station_id, scope.date, cutoff, scope.source_mode
+            store,
+            scope.station_id,
+            scope.date,
+            cutoff,
+            scope.source_mode,
+            registry_cutoff=cutoff,
         )
         kpi = daily_kpi(intervals, cutoff)
         path = "pit_engine: Store.as_of + Store.predictions"
@@ -350,7 +355,13 @@ def create_app():
 
     @app.get("/api/v1/workbench/rsi")
     def rsi(scope: Scope = Depends(), store: Store = Depends(get_store)):
-        return rsi_overview(store, scope.station_id, scope.date, scope.source_mode)
+        return rsi_overview(
+            store,
+            scope.station_id,
+            scope.date,
+            scope.source_mode,
+            cutoff=resolve_scope(scope, store) if scope.mode == "replay" else None,
+        )
 
     @app.post("/api/v1/rsi/feedback")
     def feedback(body: Feedback, store: Store = Depends(get_store)):
