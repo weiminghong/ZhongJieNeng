@@ -74,15 +74,17 @@ export function Drawer({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
-    ref.current?.showModal();
+    const dialog = ref.current;
+    dialog?.showModal();
     return () => {
+      dialog?.close();
       previous?.focus();
     };
   }, []);
   return (
     <dialog
       ref={ref}
-      className="drawer"
+      className="drawer presentation-detail-drawer"
       aria-label={title}
       onCancel={onClose}
       onClick={(e) => {
@@ -106,5 +108,31 @@ export function Drawer({
       </div>
       {children}
     </dialog>
+  );
+}
+
+export function Segments({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: readonly (readonly [string, string])[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="teaching-analytics-tabs" role="group" aria-label={label}>
+      {options.map(([key, title]) => (
+        <button
+          key={key}
+          aria-pressed={value === key}
+          onClick={() => onChange(key)}
+        >
+          {title}
+        </button>
+      ))}
+    </div>
   );
 }

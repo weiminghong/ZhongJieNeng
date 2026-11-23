@@ -76,12 +76,14 @@ export default function Raw({
   onSelect,
   reportUrl,
   revision,
+  capacity,
 }: {
   scope: Scope;
   selected?: string;
   onSelect: (s: string) => void;
   reportUrl: string;
   revision: number;
+  capacity: number;
 }) {
   const [search, setSearch] = useState("");
   const [quality, setQuality] = useState("all");
@@ -92,7 +94,12 @@ export default function Raw({
   );
   const filtered = (result.data?.intervals || []).filter(
     (r) =>
-      (quality === "all" || r.quality_flag === quality) &&
+      (quality === "all" ||
+        (quality === "exceeded"
+          ? r.actual_mw !== null &&
+            r.da_forecast_mw !== null &&
+            Math.abs(r.actual_mw - r.da_forecast_mw) > capacity * 0.05
+          : r.quality_flag === quality)) &&
       (!search ||
         [
           time(r.interval_start),
@@ -141,26 +148,37 @@ export default function Raw({
   }
   return (
     <>
-      <div className="quality-strip">
+      <div className="presentation-metrics">
         <div>
-          <strong>{result.data?.kpi?.missing_count ?? "—"}</strong>
-          <span>实测缺失时段</span>
+          <span>有效实测率</span>
+          <strong>
+            {result.data?.kpi?.observed_count ?? "—"} /{" "}
+            {result.data?.kpi?.due_count ?? "—"}
+          </strong>
+          <small>有效实测 / 应到时段</small>
         </div>
         <div>
+          <span>应到缺测时段</span>
+          <strong className="text-warning">
+            {result.data?.kpi?.missing_count ?? "—"}
+          </strong>
+          <small>未来待到达单独标记</small>
+        </div>
+        <div>
+          <span>漂移预警特征</span>
           <strong>
             {result.data?.drift?.[0]?.drifted_feature_count ?? "—"} /{" "}
             {result.data?.drift?.[0]?.total_feature_count ?? "—"}
           </strong>
-          <span>合成漂移特征示例</span>
+          <small>合成漂移场景示例</small>
         </div>
         <div>
-          <strong>PIT</strong>
-          <span>按可用时间追溯输入</span>
+          <span>PIT 时点溯源</span>
+          <strong>输入可追溯</strong>
+          <a href={reportUrl} target="_blank" rel="noreferrer">
+            中文 Evidently 报告 <ExternalLink size={12} />
+          </a>
         </div>
-        <a className="button" href={reportUrl} target="_blank" rel="noreferrer">
-          <ExternalLink size={15} />
-          中文 Evidently 报告
-        </a>
       </div>
       <Panel
         title="原始分时数据与证据"
@@ -182,16 +200,27 @@ export default function Raw({
               onChange={(e) => setSearch(e.target.value)}
             />
           </label>
-          <select
+          <div
+            className="teaching-analytics-tabs"
+            role="group"
             aria-label="质量筛选"
-            value={quality}
-            onChange={(e) => setQuality(e.target.value)}
           >
-            <option value="all">全部质量</option>
-            <option value="valid">有效实测</option>
-            <option value="missing">应到缺测</option>
-            <option value="pending">未来待到达</option>
-          </select>
+            {[
+              ["all", "全部"],
+              ["valid", "有效"],
+              ["missing", "缺测"],
+              ["pending", "待到达"],
+              ["exceeded", "超阈"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                aria-pressed={quality === value}
+                onClick={() => setQuality(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <span className="muted">
             {filtered.length} / {result.data?.intervals.length ?? 0} 条
           </span>
@@ -203,7 +232,7 @@ export default function Raw({
         />
         {!!filtered.length && (
           <div className="table-wrap raw-table">
-            <table>
+            <table className="presentation-table">
               <thead>
                 <tr>
                   <th>时段 / 北京时间</th>

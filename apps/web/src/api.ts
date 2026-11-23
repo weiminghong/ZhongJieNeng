@@ -29,17 +29,25 @@ export async function request<T>(
     );
   return data as T;
 }
-export function useResource<T>(path: string, revision = 0) {
+export function useResource<T>(path: string | null, revision = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   useEffect(() => {
+    if (!path) {
+      setData(null);
+      setError("");
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError("");
     setData(null);
     request<T>(path, undefined, controller.signal)
-      .then(setData)
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((e: Error) => {
         if (e.name !== "AbortError") setError(e.message);
       })
