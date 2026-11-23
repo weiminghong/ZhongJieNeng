@@ -408,7 +408,7 @@ export default function App() {
             </small>
           </div>
         </header>
-        <div className="admin-center-content presentation-polished">
+        <div className={`admin-center-content presentation-polished workspace-page workspace-page--${tab}`} key={tab}>
           {validDate && <ProactiveBriefs scope={scope} compact onEnter={() => setTab("agent")} onDraft={(text, interval) => { if (interval) selectInterval(interval); toDraft(text); }} />}
           {scope.source_mode === "production" ? (
             <section className="production-readiness panel" role="status">
