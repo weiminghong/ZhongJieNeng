@@ -38,8 +38,8 @@ def search_knowledge_rag(
 ):
     docs = rows(
         store,
-        "SELECT c.*,d.title,d.collection,d.source_uri,d.source_mode FROM rag_chunk c JOIN rag_document d USING(doc_id) WHERE d.status='active' AND d.source_mode=? AND (d.station_id IS NULL OR d.station_id=?) AND d.effective_from<=? AND (d.effective_to IS NULL OR d.effective_to>?) AND d.created_at<=?",
-        (source_mode, station_id, cutoff, cutoff, cutoff),
+        "SELECT c.*,d.title,d.collection,d.source_uri,d.source_mode FROM rag_chunk c JOIN rag_document d USING(doc_id) WHERE d.status='active' AND d.source_mode=? AND (d.station_id IS NULL OR d.station_id=?) AND d.effective_from<=? AND (d.effective_to IS NULL OR d.effective_to>?) AND d.created_at<=? AND c.created_at<=?",
+        (source_mode, station_id, cutoff, cutoff, cutoff, cutoff),
     )
     if not docs:
         return []
@@ -50,8 +50,8 @@ def search_knowledge_rag(
             r["chunk_id"]: r["score"]
             for r in rows(
                 store,
-                "SELECT chunk_id,bm25(rag_chunk_fts) AS score FROM rag_chunk_fts WHERE rag_chunk_fts MATCH ? ORDER BY score LIMIT 100",
-                (query,),
+                "SELECT rag_chunk_fts.chunk_id,bm25(rag_chunk_fts) AS score FROM rag_chunk_fts JOIN rag_chunk c ON c.chunk_id=rag_chunk_fts.chunk_id JOIN rag_document d ON d.doc_id=c.doc_id WHERE rag_chunk_fts MATCH ? AND d.status='active' AND d.source_mode=? AND (d.station_id IS NULL OR d.station_id=?) AND d.effective_from<=? AND (d.effective_to IS NULL OR d.effective_to>?) AND d.created_at<=? AND c.created_at<=? ORDER BY score,c.created_at DESC,c.chunk_id LIMIT 100",
+                (query, source_mode, station_id, cutoff, cutoff, cutoff, cutoff),
             )
         }
         if query
@@ -78,7 +78,9 @@ def search_knowledge_rag(
                 "retrieval": "FTS5 BM25 + Chinese bigram TF-IDF",
             }
         )
-    return sorted(results, key=lambda r: (-r["score"], r["chunk_id"]))[:limit]
+    # Equal relevance prefers the latest visible evidence, then a stable ID.
+    results.sort(key=lambda r: r["chunk_id"])
+    return sorted(results, key=lambda r: (r["score"], r["created_at"]), reverse=True)[:limit]
 
 
 def query_agent(store, question, scope, user_id="operator", session_id=None):

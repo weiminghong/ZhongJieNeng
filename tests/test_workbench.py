@@ -856,6 +856,24 @@ class WorkbenchTests(unittest.TestCase):
         self.assertTrue(all(r.status_code == 200 for r in results))
 
 
+    def test_rag_equal_relevance_prefers_recent_visible_case_and_filters_future_chunks(self):
+        case_id = self.store.db.execute("SELECT case_id FROM deviation_case WHERE station_id='lanneng' LIMIT 1").fetchone()[0]
+        documents = []
+        for i in range(7):
+            with patch("cecep_console.rsi.now", return_value=f"2026-11-23T10:0{i}:00.000000Z"), self.store.db:
+                feedback = review_feedback(self.store, case_id, "相同天气复核证据", False)
+                documents.append(ingest_feedback(self.store, feedback["feedback_id"]))
+        result = search_knowledge_rag(self.store, "相同天气复核证据", "lanneng", "2026-11-23T10:06:00.000000Z")
+        self.assertEqual(result[0]["chunk_id"], documents[-1]["chunk_id"])
+        self.assertEqual(len(result), 5)
+        chunk = dict(self.store.db.execute("SELECT * FROM rag_chunk WHERE chunk_id=?", (documents[0]["chunk_id"],)).fetchone())
+        chunk.update(chunk_id="future-case-chunk", chunk_index=1, created_at="2026-12-01T00:00:00.000000Z")
+        with self.store.db:
+            self.store.append("rag_chunk", chunk)
+        replay = search_knowledge_rag(self.store, "相同天气复核证据", "lanneng", "2026-11-23T10:02:00.000000Z")
+        self.assertEqual(replay[0]["chunk_id"], documents[2]["chunk_id"])
+        self.assertFalse(any(r["chunk_id"] == "future-case-chunk" for r in replay))
+
     def test_connection_status_separates_synthetic_inputs_from_production(self):
         with TestClient(create_app()) as client:
             demo = client.get("/api/v1/workbench/readiness?source_mode=synthetic").json()
