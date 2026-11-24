@@ -43,6 +43,7 @@ from .agent_service import query_agent, agent_history
 from .model_runtime import list_runtime_models, register_runtime_model, run_model_inference
 from .proactive import run_proactive_analysis, latest_proactive_briefs
 from .serving import now
+from .readiness import connection_readiness, available_dates
 
 
 class Scope(BaseModel):
@@ -183,6 +184,10 @@ def overview(store, scope):
             )
             kpi["mbe_mw"] = m["mbe"]
         path = "serving_interval_wide + serving_daily_kpi"
+        if not intervals and scope.date in available_dates(store, scope.station_id, scope.source_mode):
+            intervals = build_intervals(store, scope.station_id, scope.date, cutoff, scope.source_mode, registry_cutoff=cutoff)
+            kpi = daily_kpi(intervals, cutoff)
+            path = "pit_engine: 尚无预聚合记录，按原始到达证据查询"
     return {
         "intervals": intervals,
         "kpi": kpi,
@@ -304,19 +309,14 @@ def create_app():
         return storage_api.response("/api/storage/" + endpoint, query)
 
     @app.get("/api/v1/workbench/bootstrap")
-    def bootstrap(store: Store = Depends(get_store)):
+    def bootstrap(station_id: str | None = None, source_mode: Literal["synthetic", "production"] = "synthetic", store: Store = Depends(get_store)):
         stations = rows(
             store,
             "SELECT s.station_id,s.station_name,s.latitude,s.longitude,c.capacity_ac_mw FROM station s JOIN station_config_version c USING(station_id) WHERE c.revision_no=(SELECT max(revision_no) FROM station_config_version c2 WHERE c2.station_id=s.station_id) ORDER BY s.station_id",
         )
         return {
             "stations": stations,
-            "dates": [
-                r[0]
-                for r in store.db.execute(
-                    "SELECT DISTINCT trading_date FROM serving_interval_wide ORDER BY trading_date"
-                )
-            ],
+            "dates": available_dates(store, station_id, source_mode),
             "modes": ["live", "replay", "post"],
             "source_modes": [
                 r[0]
@@ -325,7 +325,7 @@ def create_app():
                 )
             ],
             "default_date": "2026-11-20",
-            "data_clock": data_clock(store),
+            "data_clock": data_clock(store, source_mode),
             "models": model_states(store),
             "timezone": "Asia/Shanghai",
             "interval_minutes": 15,
@@ -347,6 +347,10 @@ def create_app():
                 "source_notice": "所有 synthetic 数据、演示模型及示例规则均不代表真实生产结果",
             },
         }
+
+    @app.get("/api/v1/workbench/readiness")
+    def readiness_status(station_id: str = "lanneng", source_mode: Literal["synthetic", "production"] = "synthetic", store: Store = Depends(get_store)):
+        return connection_readiness(store, station_id, source_mode)
 
     @app.get("/api/v1/workbench/overview")
     def get_overview(scope: Scope = Depends(), store: Store = Depends(get_store)):

@@ -193,7 +193,7 @@ def query_agent(store, question, scope, user_id="operator", session_id=None):
         },
     )["chunks"]
     inference = None
-    what_if = bool(re.search("云量|升温|限电|假设|如果|重算预测|场景推演", question))
+    what_if = bool(re.search(r"云量\s*[+-]?\d+(?:\.\d+)?\s*%|(?:升温|温度增加|温度)\s*[+-]?\d|限电(?:至|上限)?\s*[\d.]+\s*(?:MW|兆瓦)|假设|如果|重算预测|场景推演", question, re.I))
     runtime_id = None
     registry_cutoff = cutoff if scope.get("mode") == "replay" else now()
     if what_if or re.search("小模型|实时预测|实时推理", question):

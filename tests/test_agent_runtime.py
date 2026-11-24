@@ -199,6 +199,20 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(sandbox["delta_net_revenue_yuan"], sandbox["simulated"]["net_revenue_yuan"]-sandbox["baseline"]["net_revenue_yuan"])
         self.assertNotEqual(sandbox["delta_penalty_yuan"], 0)
 
+    def test_weather_evidence_question_does_not_request_hypothetical_parameters(self):
+        result = query_agent(self.store, "请核对云量、辐照和限电原因，分析光伏预测偏差", self.scope)
+        self.assertTrue(result["answer_markdown"])
+        self.assertFalse(any(c["tool_name"] == "run_what_if_forecast" for c in result["tool_calls"]))
+        with self.assertRaisesRegex(ValueError, "场景参数"):
+            query_agent(self.store, "假设云量发生变化，进行场景推演", self.scope)
+
+    def test_explicit_curtailment_parameters_keep_scenario_dispatch(self):
+        for question in ["限电至20MW", "限电上限20MW", "限电20MW"]:
+            with self.subTest(question=question):
+                result = query_agent(self.store, question, self.scope)
+                output = next(c["output"] for c in result["tool_calls"] if c["tool_name"] == "run_what_if_forecast")
+                self.assertEqual(output["overrides"], {"curtailment_cap_mw": 20})
+
     def test_proactive_brief_immutable_and_four_signal_types(self):
         brief = run_proactive_analysis(self.store, self.scope)
         self.assertEqual(len(brief["signals"]), 4)

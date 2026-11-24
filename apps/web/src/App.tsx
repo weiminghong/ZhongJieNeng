@@ -5,17 +5,14 @@ import {
   ChartNoAxesCombined,
   Sparkles,
   ClipboardCheck,
-  ChevronRight,
-  CalendarDays,
-  Building2,
-  Clock3,
   Sun,
-  PanelRightOpen,
-  Radio,
-  GitBranch,
   RefreshCw,
-  X,
+  Settings2,
+  ChevronRight,
   ExternalLink,
+  X,
+  PanelRightOpen,
+  Cable,
 } from "lucide-react";
 import type {
   Bootstrap,
@@ -25,6 +22,7 @@ import type {
   Mode,
   SourceMode,
   Inference,
+  Readiness,
 } from "./types";
 import { query, useResource, time, stamp } from "./api";
 import { Drawer, Status } from "./components";
@@ -33,50 +31,65 @@ import Raw from "./Raw";
 import Trading from "./Trading";
 import Agent from "./Agent";
 import Rsi from "./Rsi";
-import ProactiveBriefs from "./ProactiveBriefs";
+import ContextRail from "./ContextRail";
+import ConnectionStatus from "./ConnectionStatus";
 
 const tabs = [
   {
     id: "forecast",
-    title: "预测与版本对比",
+    title: "预测分析",
     icon: Activity,
-    description: "预测表现、置信区间与同口径评估",
+    description: "光伏预测与版本对比",
   },
   {
     id: "raw",
-    title: "原始数据与血缘",
+    title: "数据与血缘",
     icon: Database,
-    description: "分时数据、质量与底层证据",
+    description: "原始记录与来源追溯",
   },
   {
     id: "trading",
-    title: "申报策略与收益",
+    title: "交易策略",
     icon: ChartNoAxesCombined,
-    description: "确定性结算与三方案沙盘",
+    description: "申报方案与收益沙盘",
   },
   {
     id: "agent",
     title: "智能体助手",
     icon: Sparkles,
-    description: "双通道工具分析与知识检索",
+    description: "业务分析与工具证据",
   },
   {
     id: "rsi",
-    title: "偏差审核与 RSI",
+    title: "模型与审核",
     icon: ClipboardCheck,
-    description: "人工复核、知识沉淀与生命周期",
+    description: "偏差复核与模型审批",
+  },
+  {
+    id: "connections",
+    title: "接入状态",
+    icon: Cable,
+    description: "数据、模型与业务能力",
   },
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
 
 export default function App() {
-  const bootstrap = useResource<Bootstrap>("/api/v1/workbench/bootstrap");
   const [scope, setScope] = useState<Scope>({
     station_id: "lanneng",
     date: "",
     mode: "live",
     source_mode: "synthetic",
   });
+  const [revision, setRevision] = useState(0);
+  const bootstrap = useResource<Bootstrap>(
+    `/api/v1/workbench/bootstrap?station_id=${encodeURIComponent(scope.station_id)}&source_mode=${scope.source_mode}`,
+    revision,
+  );
+  const readiness = useResource<Readiness>(
+    `/api/v1/workbench/readiness?station_id=${encodeURIComponent(scope.station_id)}&source_mode=${scope.source_mode}`,
+    revision,
+  );
   const [tab, setTab] = useState<Tab>("forecast");
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem("cecep-theme") === "high-contrast-light"
@@ -84,32 +97,49 @@ export default function App() {
       : "standard-light",
   );
   const [drawer, setDrawer] = useState(false);
-  const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState("");
   const [overlay, setOverlay] = useState<Inference | null>(null);
-  useEffect(() => setOverlay(null), [scope.station_id, scope.date, scope.mode, scope.cutoff_at, scope.source_mode]);
-  const showOverlay = useCallback((data: Inference) => {
-    setOverlay(data); setTab("forecast"); setDrawer(false);
-  }, []);
   const [cutoffTime, setCutoffTime] = useState("12:00");
   const validDate = !!bootstrap.data?.dates.includes(scope.date);
   const overview = useResource<Overview>(
     validDate ? "/api/v1/workbench/overview?" + query(scope) : null,
     revision,
   );
+  useEffect(
+    () => setOverlay(null),
+    [
+      scope.station_id,
+      scope.date,
+      scope.mode,
+      scope.cutoff_at,
+      scope.source_mode,
+    ],
+  );
   useEffect(() => {
-    if (overlay && overview.data && overlay.cutoff_at !== overview.data.cutoff_at) setOverlay(null);
+    if (
+      overlay &&
+      overview.data &&
+      overlay.cutoff_at !== overview.data.cutoff_at
+    )
+      setOverlay(null);
   }, [overlay, overview.data]);
   useEffect(() => {
     const b = bootstrap.data;
-    if (b && !b.dates.includes(scope.date))
+    if (b && !b.dates.includes(scope.date)) {
+      const date = b.dates.includes(b.default_date)
+        ? b.default_date
+        : b.dates[0] || "";
       setScope((s) => ({
         ...s,
-        date: b.dates.includes(b.default_date)
-          ? b.default_date
-          : b.dates[0] || "",
+        date,
+        selected_interval: undefined,
+        cutoff_at:
+          s.mode === "replay" && date
+            ? `${date}T${cutoffTime}:00+08:00`
+            : undefined,
       }));
-  }, [bootstrap.data, scope.date]);
+    }
+  }, [bootstrap.data, scope.date, cutoffTime]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("cecep-theme", theme);
@@ -124,419 +154,344 @@ export default function App() {
     setTab("rsi");
     setDrawer(false);
   }, []);
-  const station = bootstrap.data?.stations.find(
-    (s) => s.station_id === scope.station_id,
-  );
-  const current = tabs.find((t) => t.id === tab)!;
+  const showOverlay = useCallback((value: Inference) => {
+    setOverlay(value);
+    setTab("forecast");
+    setDrawer(false);
+  }, []);
   function updateContext(update: Partial<Scope>) {
-    if (update.date && !bootstrap.data?.dates.includes(update.date)) return;
     setScope((s) => ({
       ...s,
       ...update,
       ...(update.date && s.mode === "replay"
-        ? { cutoff_at: update.date + "T" + cutoffTime + ":00+08:00" }
+        ? { cutoff_at: `${update.date}T${cutoffTime}:00+08:00` }
         : {}),
       selected_interval: undefined,
     }));
     setDraft("");
   }
-  function setMode(mode: Mode) {
+  function changeMode(mode: Mode) {
     updateContext({
       mode,
       cutoff_at:
-        mode === "replay"
-          ? scope.date + "T" + cutoffTime + ":00+08:00"
-          : undefined,
+        mode === "replay" ? `${scope.date}T${cutoffTime}:00+08:00` : undefined,
     });
   }
-  if (bootstrap.loading || bootstrap.error)
-    return (
-      <div className="startup">
-        <h1>中节能 · 光储交易工作台</h1>
-        <Status loading={bootstrap.loading} error={bootstrap.error} />
-      </div>
-    );
-  const dates = bootstrap.data?.dates || [];
+  const station = bootstrap.data?.stations.find(
+    (s) => s.station_id === scope.station_id,
+  );
+  const current = tabs.find((t) => t.id === tab)!;
+  const llmMode = bootstrap.data?.llm_mode || "deterministic_tools_only";
+  const noData = !!bootstrap.data && !bootstrap.data.dates.length;
   return (
-    <div className="app-shell bg-background text-on-surface">
-      <header className="app-switcher">
+    <div className="energy-shell">
+      <aside className="energy-sidebar" aria-label="业务导航">
         <a
-          className="brand"
+          className="energy-brand"
           href="#forecast"
           onClick={() => setTab("forecast")}
         >
-          <span className="brand-icon">
-            <Activity size={24} />
-          </span>
-          <strong>中节能</strong>
-          <span className="brand-divider" />
-          <span className="product-name">光储交易工作台</span>
+          <Sun size={26} aria-hidden="true" />
+          <strong>
+            中节能<span>光伏交易工作台</span>
+          </strong>
         </a>
-        <div className="banner-facts">
-          <label className="start-banner-fact-card">
-            <Building2 aria-hidden="true" />
-            <span>
-              <small>场站</small>
-              <select
-                aria-label="场站"
-                value={scope.station_id}
-                onChange={(e) => updateContext({ station_id: e.target.value })}
-              >
-                {bootstrap.data?.stations.map((s) => (
-                  <option key={s.station_id} value={s.station_id}>
-                    {s.station_name} · {s.capacity_ac_mw} MW
-                  </option>
-                ))}
-              </select>
-            </span>
-          </label>
-          <label className="start-banner-fact-card date-fact">
-            <CalendarDays aria-hidden="true" />
-            <span>
-              <small>交易日 · 仅可用日期</small>
-              <span className="available-date-control">
-                {dates.length > 5 && (
-                  <button
-                    aria-label="上一个可用交易日"
-                    disabled={dates.indexOf(scope.date) <= 0}
-                    onClick={() =>
-                      updateContext({
-                        date: dates[dates.indexOf(scope.date) - 1],
-                      })
-                    }
-                  >
-                    ‹
-                  </button>
-                )}
-                <select
-                  aria-label="交易日期"
-                  value={scope.date}
-                  onChange={(e) => updateContext({ date: e.target.value })}
-                  disabled={!dates.length}
-                >
-                  {!dates.length && <option value="">暂无可用日期</option>}
-                  {dates.map((d) => (
-                    <option key={d} value={d}>
-                      {d.slice(5)}{" "}
-                      {d < bootstrap.data!.default_date
-                        ? "历史"
-                        : d === bootstrap.data!.default_date
-                          ? `日内 ${time(bootstrap.data!.data_clock)}`
-                          : "日前"}
-                    </option>
-                  ))}
-                </select>
-                {dates.length > 5 && (
-                  <button
-                    aria-label="下一个可用交易日"
-                    disabled={dates.indexOf(scope.date) >= dates.length - 1}
-                    onClick={() =>
-                      updateContext({
-                        date: dates[dates.indexOf(scope.date) + 1],
-                      })
-                    }
-                  >
-                    ›
-                  </button>
-                )}
-              </span>
-            </span>
-          </label>
-          <label className="start-banner-fact-card">
-            <Radio aria-hidden="true" />
-            <span>
-              <small>工作模式</small>
-              <select
-                aria-label="工作模式"
-                value={scope.mode}
-                onChange={(e) => setMode(e.target.value as Mode)}
-              >
-                <option value="live">日内实时</option>
-                <option value="replay">时点回放</option>
-                <option value="post">事后复盘</option>
-              </select>
-            </span>
-          </label>
-          {scope.mode === "replay" && (
-            <label className="start-banner-fact-card cutoff-fact">
-              <Clock3 aria-hidden="true" />
-              <span>
-                <small>截止时间 · 北京时间</small>
-                <input
-                  aria-label="回放截止时间"
-                  type="time"
-                  value={cutoffTime}
-                  onChange={(e) => {
-                    if (!e.target.value) return;
-                    setCutoffTime(e.target.value);
-                    updateContext({
-                      cutoff_at:
-                        scope.date + "T" + e.target.value + ":00+08:00",
-                    });
-                  }}
-                />
-              </span>
-            </label>
-          )}
-        </div>
-        <div className="header-actions">
-          <button
-            className="theme-button"
-            onClick={() =>
-              setTheme((v) =>
-                v === "standard-light"
-                  ? "high-contrast-light"
-                  : "standard-light",
-              )
-            }
-            aria-label="切换标准浅色与高对比"
-          >
-            <Sun size={16} />
-            <span>{theme === "standard-light" ? "标准浅色" : "高对比"}</span>
-          </button>
-          <button className="primary-button" onClick={() => setDrawer(true)}>
-            <Sparkles size={16} />
-            智能体助手
-            <PanelRightOpen size={15} />
-          </button>
-        </div>
-      </header>
-      <aside className="admin-center-sidebar">
-        <div className="workspace-label">
-          <Radio size={16} />
-          业务工作区<span>v1.0</span>
-        </div>
-        <nav className="admin-center-navigation" aria-label="业务模块">
-          {(
-            [
-              { id: "business", title: "业务分析", items: tabs.slice(0, 3) },
-              { id: "governance", title: "智能与治理", items: tabs.slice(3) },
-            ] as const
-          ).map((group) => (
-            <section className="admin-center-nav-group" key={group.id}>
-              <div className="admin-center-section-toggle">{group.title}</div>
-              <div
-                className="admin-center-subsection-list"
-                id={`nav-${group.id}`}
-              >
-                {group.items.map((t) => (
-                  <button
-                    key={t.id}
-                    className={tab === t.id ? "is-active" : ""}
-                    aria-current={tab === t.id ? "page" : undefined}
-                    onClick={() => setTab(t.id)}
-                  >
-                    <span className="admin-center-nav-icon">
-                      <t.icon size={22} />
-                    </span>
-                    <span className="admin-center-nav-copy">
-                      <strong>{t.title}</strong>
-                      <small>{t.description}</small>
-                    </span>
-                    <ChevronRight size={14} />
-                  </button>
-                ))}
-              </div>
-            </section>
+        <nav>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className={tab === t.id ? "is-active" : ""}
+              aria-current={tab === t.id ? "page" : undefined}
+              onClick={() => setTab(t.id)}
+            >
+              <t.icon size={19} />
+              <span>{t.title}</span>
+              <ChevronRight size={14} />
+            </button>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <div className="source-indicator">
-            <span className="status-dot" />
-            数据库已连接
+        <div className="energy-sidebar-bottom">
+          <div className="solar-sign" aria-hidden="true">
+            <Sun size={28} />
+            <span />
+            <span />
+            <span />
           </div>
-          <p>SQLite WAL · PIT 时点引擎</p>
-          <a
-            href={bootstrap.data?.evidently.report_url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Evidently 中文报告
-            <ExternalLink size={13} />
+          <p>光伏量价 · 证据相随</p>
+          <a href="/settings">
+            <Settings2 size={15} /> 模型与连接设置
           </a>
-          <small>{bootstrap.data?.evidently.status}</small>
-          <div className="source-note">
-            {scope.source_mode === "synthetic"
-              ? "合成演示 · 未训练模型"
-              : "生产数据模式"}
-          </div>
+          {bootstrap.data?.evidently.report_url && (
+            <a
+              href={bootstrap.data.evidently.report_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ExternalLink size={14} /> 外部监测报告
+            </a>
+          )}
+          <small>报告内容需独立核验</small>
         </div>
       </aside>
-      <main className="admin-center-main">
-        <header className="admin-center-header">
-          <div className="page-heading">
-            <span className="admin-center-page-icon">
-              <current.icon size={24} />
+      <main className="energy-main">
+        <header className="energy-heading">
+          <div className="energy-page-title">
+            <current.icon size={21} />
+            <h1>{current.description}</h1>
+            <span
+              className={`badge ${scope.source_mode === "synthetic" ? "warning" : "info"}`}
+            >
+              {scope.source_mode === "synthetic" ? "合成演示" : "生产口径"}
             </span>
-            <div>
-              <h1>{current.title}</h1>
-              <p>
-                {station?.station_name || scope.station_id} · {scope.date} ·{" "}
-                {current.description}
-              </p>
-            </div>
           </div>
-          <div className="workspace-evidence">
-            <div className="context-badges">
-              <label className="source-selector">
-                数据口径
-                <select
-                  aria-label="数据口径"
-                  value={scope.source_mode}
-                  onChange={(e) =>
-                    updateContext({ source_mode: e.target.value as SourceMode })
-                  }
-                >
-                  <option value="synthetic">合成演示</option>
-                  <option value="production">生产数据</option>
-                </select>
-              </label>
-              <button onClick={refresh} aria-label="刷新数据库数据">
-                <RefreshCw size={14} />
-                刷新
-              </button>
-            </div>
-            <span className="read-path" title={overview.data?.query_path}>
-              <GitBranch size={13} />
-              {scope.mode === "replay" ? "实时 PIT 引擎" : "预聚合宽表"} ·{" "}
-              {scope.source_mode === "synthetic" ? "合成演示" : "生产"}
-            </span>
-            <small>
-              数据时钟{" "}
-              {overview.data ? stamp(overview.data.cutoff_at) : "读取中"} ·
-              北京时间
-            </small>
+          <div className="energy-actions">
+            <button onClick={refresh} aria-label="刷新数据">
+              <RefreshCw size={16} />
+            </button>
+            <button
+              onClick={() =>
+                setTheme(
+                  theme === "standard-light"
+                    ? "high-contrast-light"
+                    : "standard-light",
+                )
+              }
+            >
+              {theme === "standard-light" ? "高对比" : "标准显示"}
+            </button>
+            <button onClick={() => setDrawer(true)} disabled={!validDate}>
+              <PanelRightOpen size={16} />
+              随行智能体
+            </button>
           </div>
         </header>
-        <div className={`admin-center-content presentation-polished workspace-page workspace-page--${tab}`} key={tab}>
-          {validDate && <ProactiveBriefs scope={scope} compact onEnter={() => setTab("agent")} onDraft={(text, interval) => { if (interval) selectInterval(interval); toDraft(text); }} />}
-          {scope.source_mode === "production" ? (
-            <section className="production-readiness panel" role="status">
-              <div className="readiness-heading">
-                <Database size={28} />
-                <div>
-                  <h2>生产数据接入就绪状态</h2>
-                  <p>当前暂无生产记录，等待真实数据源接入后开始业务分析。</p>
-                </div>
-              </div>
-              <div className="presentation-metrics">
-                <div>
-                  <span>源端数据库</span>
-                  <strong>等待接入</strong>
-                  <small>10 号服务器 · energy_poc</small>
-                </div>
-                <div>
-                  <span>真实数据适配器</span>
-                  <strong>待配置</strong>
-                  <small>实测、气象、价格与合同</small>
-                </div>
-                <div>
-                  <span>时点与质量校验</span>
-                  <strong>等待数据</strong>
-                  <small>available_at 与批次血缘核验</small>
-                </div>
-                <div>
-                  <span>当前口径</span>
-                  <strong>production</strong>
-                  <small>真实数据尚未提供</small>
-                </div>
-              </div>
-              <button
-                className="primary-button"
-                onClick={() => updateContext({ source_mode: "synthetic" })}
-              >
-                切回合成演示
-              </button>
-            </section>
-          ) : !validDate ? (
-            <Status empty />
-          ) : (
+        <div className="energy-filters" aria-label="分析范围">
+          <label>
+            <span>光伏场站</span>
+            <select
+              aria-label="场站"
+              value={scope.station_id}
+              onChange={(e) => updateContext({ station_id: e.target.value })}
+            >
+              {bootstrap.data?.stations.map((s) => (
+                <option key={s.station_id} value={s.station_id}>
+                  {s.station_name} · {s.capacity_ac_mw} MW
+                </option>
+              ))}
+              {!bootstrap.data && (
+                <option value={scope.station_id}>{scope.station_id}</option>
+              )}
+            </select>
+          </label>
+          <label>
+            <span>交易日期</span>
+            <select
+              aria-label="交易日期"
+              value={scope.date}
+              onChange={(e) => updateContext({ date: e.target.value })}
+              disabled={!bootstrap.data?.dates.length}
+            >
+              {!bootstrap.data?.dates.length && (
+                <option value="">暂无可用日期</option>
+              )}
+              {bootstrap.data?.dates.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>查看方式</span>
+            <select
+              aria-label="工作模式"
+              value={scope.mode}
+              onChange={(e) => changeMode(e.target.value as Mode)}
+            >
+              <option value="live">日内实时</option>
+              <option value="post">事后复盘</option>
+              <option value="replay">时点回放</option>
+            </select>
+          </label>
+          {scope.mode === "replay" && (
+            <label>
+              <span>截止时间</span>
+              <input
+                aria-label="回放截止时间"
+                type="time"
+                step="900"
+                value={cutoffTime}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  setCutoffTime(e.target.value);
+                  updateContext({
+                    cutoff_at: `${scope.date}T${e.target.value}:00+08:00`,
+                  });
+                }}
+              />
+            </label>
+          )}
+          <label>
+            <span>数据口径</span>
+            <select
+              aria-label="数据口径"
+              value={scope.source_mode}
+              onChange={(e) =>
+                updateContext({ source_mode: e.target.value as SourceMode })
+              }
+            >
+              <option value="synthetic">合成演示</option>
+              <option value="production">生产数据</option>
+            </select>
+          </label>
+          <div className="energy-clock">
+            <span className="status-dot" />
+            {overview.data
+              ? `数据截止 ${stamp(overview.data.cutoff_at)}`
+              : "按所选范围读取"}
+            <small>北京时间 · 15 分钟</small>
+          </div>
+        </div>
+        <div className="energy-scroll">
+          <div className="energy-source-notice">
+            <span>
+              {scope.source_mode === "synthetic"
+                ? "当前为合成演示，预测、参考规则与收益均不代表生产效果。"
+                : "生产口径仅显示真实到达记录，缺失输入不补造。"}
+            </span>
+            <button onClick={() => setTab("connections")}>
+              查看接入状态
+              <ChevronRight size={13} />
+            </button>
+          </div>
+          <Status loading={bootstrap.loading} error={bootstrap.error} />
+          {!bootstrap.loading && !bootstrap.error && (
             <>
-              {scope.selected_interval && (
-                <div className="selection-bar">
-                  <span>
-                    已选时段 <strong>{time(scope.selected_interval)}</strong> ·
-                    跨模块分析上下文
-                  </span>
-                  <div>
-                    <button onClick={() => setTab("raw")}>查看血缘</button>
-                    <button onClick={() => setDrawer(true)}>交给 Agent</button>
-                    <button
-                      aria-label="清除选中时段"
-                      onClick={() =>
-                        setScope((s) => ({
-                          ...s,
-                          selected_interval: undefined,
-                        }))
-                      }
-                    >
-                      <X size={14} />
-                    </button>
+              {tab === "connections" ? (
+                <ConnectionStatus resource={readiness} />
+              ) : noData ? (
+                <section className="connection-empty">
+                  <Database size={32} />
+                  <h2>
+                    当前场站尚无
+                    {scope.source_mode === "production" ? "生产" : "合成"}记录
+                  </h2>
+                  <p>
+                    接入状态按数据库实时核验；现有演示数据不会混入生产口径。
+                  </p>
+                  <button
+                    className="primary-button"
+                    onClick={() => setTab("connections")}
+                  >
+                    查看数据与模型接入
+                  </button>
+                </section>
+              ) : (
+                <div
+                  className={`energy-workspace ${tab === "forecast" ? "with-context" : ""}`}
+                >
+                  <div className={`workspace-page workspace-page--${tab}`}>
+                    {scope.selected_interval && tab !== "forecast" && (
+                      <div className="selection-bar">
+                        <span>
+                          已选 {time(scope.selected_interval)} ·
+                          上下文跨模块保留
+                        </span>
+                        <button
+                          aria-label="清除选中时段"
+                          onClick={() =>
+                            setScope((s) => ({
+                              ...s,
+                              selected_interval: undefined,
+                            }))
+                          }
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+                    {tab === "forecast" && validDate && (
+                      <Forecast
+                        scope={scope}
+                        data={overview.data}
+                        loading={overview.loading}
+                        error={overview.error}
+                        theme={theme}
+                        capacity={station?.capacity_ac_mw || 0}
+                        onSelect={selectInterval}
+                        onRaw={() => setTab("raw")}
+                        onDateChange={(d) => updateContext({ date: d })}
+                        revision={revision}
+                        overlay={overlay}
+                        onOverlay={showOverlay}
+                        onClearOverlay={() => setOverlay(null)}
+                      />
+                    )}
+                    {tab === "raw" && validDate && (
+                      <Raw
+                        scope={scope}
+                        capacity={station?.capacity_ac_mw || 0}
+                        selected={scope.selected_interval}
+                        onSelect={selectInterval}
+                        reportUrl={bootstrap.data?.evidently.report_url || ""}
+                        revision={revision}
+                      />
+                    )}
+                    {tab === "trading" && validDate && (
+                      <Trading
+                        scope={scope}
+                        theme={theme}
+                        revision={revision}
+                        onRefresh={refresh}
+                        onDateChange={(d) => updateContext({ date: d })}
+                      />
+                    )}
+                    {tab === "agent" && validDate && (
+                      <section className="panel agent-page">
+                        <Agent
+                          scope={scope}
+                          theme={theme}
+                          onOverlay={showOverlay}
+                          llmMode={llmMode}
+                          onDraft={toDraft}
+                        />
+                      </section>
+                    )}
+                    {tab === "rsi" && validDate && (
+                      <Rsi
+                        scope={scope}
+                        revision={revision}
+                        onRefresh={refresh}
+                        draft={draft}
+                        onSelect={selectInterval}
+                      />
+                    )}
                   </div>
+                  {tab === "forecast" && (
+                    <ContextRail
+                      scope={scope}
+                      data={overview.data}
+                      loading={overview.loading}
+                      error={overview.error}
+                      llmMode={llmMode}
+                      onSelect={selectInterval}
+                      onRaw={() => setTab("raw")}
+                      onDraft={toDraft}
+                      onFullAgent={() => setTab("agent")}
+                    />
+                  )}
                 </div>
               )}
-              {tab === "forecast" && (
-                <Forecast
-                  scope={scope}
-                  data={overview.data}
-                  loading={overview.loading}
-                  error={overview.error}
-                  theme={theme}
-                  capacity={station?.capacity_ac_mw || 0}
-                  onSelect={selectInterval}
-                  onRaw={() => setTab("raw")}
-                  onDateChange={(d) => updateContext({ date: d })}
-                  revision={revision}
-                  overlay={overlay}
-                  onOverlay={showOverlay}
-                  onClearOverlay={() => setOverlay(null)}
-                />
-              )}
-              {tab === "raw" && (
-                <Raw
-                  scope={scope}
-                  capacity={station?.capacity_ac_mw || 0}
-                  selected={scope.selected_interval}
-                  onSelect={selectInterval}
-                  reportUrl={bootstrap.data?.evidently.report_url || ""}
-                  revision={revision}
-                />
-              )}
-              {tab === "trading" && (
-                <Trading
-                  scope={scope}
-                  theme={theme}
-                  revision={revision}
-                  onRefresh={refresh}
-                  onDateChange={(d) => updateContext({ date: d })}
-                />
-              )}
-              {tab === "agent" && (
-                <section className="panel agent-page">
-                  <Agent
-                    scope={scope}
-                    theme={theme}
-                    onOverlay={showOverlay}
-                    llmMode={bootstrap.data!.llm_mode}
-                    onDraft={toDraft}
-                  />
-                </section>
-              )}
-              {tab === "rsi" && (
-                <Rsi
-                  scope={scope}
-                  revision={revision}
-                  onRefresh={refresh}
-                  draft={draft}
-                  onSelect={selectInterval}
-                />
-              )}
+              <footer className="energy-footer">
+                <span>中节能光伏交易工作台 · 口径可核验，证据可追溯</span>
+                <span>
+                  {llmMode === "deterministic_tools_only"
+                    ? "确定性工具模式"
+                    : "外部证据摘要器已配置 · 调用结果以记录为准"}
+                </span>
+              </footer>
             </>
           )}
-          <footer className="page-footer">
-            <span>中节能光储交易工作台 · 证据可追溯，口径可核验</span>
-            <span>{bootstrap.data?.llm_mode} · 工具计算与知识证据可追溯</span>
-          </footer>
         </div>
       </main>
       {drawer && (
@@ -545,7 +500,7 @@ export default function App() {
             scope={scope}
             theme={theme}
             onOverlay={showOverlay}
-            llmMode={bootstrap.data!.llm_mode}
+            llmMode={llmMode}
             onDraft={toDraft}
           />
         </Drawer>

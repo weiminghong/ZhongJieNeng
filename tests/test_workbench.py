@@ -856,5 +856,51 @@ class WorkbenchTests(unittest.TestCase):
         self.assertTrue(all(r.status_code == 200 for r in results))
 
 
+    def test_connection_status_separates_synthetic_inputs_from_production(self):
+        with TestClient(create_app()) as client:
+            demo = client.get("/api/v1/workbench/readiness?source_mode=synthetic").json()
+            production = client.get("/api/v1/workbench/readiness?source_mode=production").json()
+            self.assertTrue(any(r["record_count"] for r in demo["inputs"]))
+            self.assertTrue(all(r["record_count"] == 0 for r in production["inputs"]))
+            self.assertTrue(any(m["ready"] for m in production["models"]))
+            self.assertFalse(next(c for c in production["capabilities"] if c["key"] == "training")["available"])
+            self.assertEqual(client.get("/api/v1/workbench/bootstrap?source_mode=production").json()["dates"], [])
+            self.assertEqual(client.get("/api/v1/workbench/bootstrap?station_id=absent").json()["dates"], [])
+            self.assertEqual(client.get("/api/v1/workbench/readiness?source_mode=invalid").status_code, 422)
+
+    def test_connection_status_detects_real_arrival_without_serving_materialization(self):
+        source = dict(self.store.db.execute("SELECT * FROM data_source LIMIT 1").fetchone())
+        source.update(source_id="real-test-source", source_name="real-test-source", source_type="meter")
+        batch = dict(self.store.db.execute("SELECT * FROM ingestion_batch LIMIT 1").fetchone())
+        batch.update(batch_id="real-test-batch", source_id=source["source_id"])
+        actual = dict(self.store.db.execute("SELECT * FROM station_actual WHERE station_id='lanneng' LIMIT 1").fetchone())
+        actual.update(actual_id="real-test-actual", source_id=source["source_id"], batch_id=batch["batch_id"], availability_basis="verified_arrival")
+        with self.store.db:
+            self.store.append("data_source", source)
+            self.store.append("ingestion_batch", batch)
+            self.store.append("station_actual", actual)
+        with TestClient(create_app()) as client:
+            production = client.get("/api/v1/workbench/readiness?source_mode=production").json()
+            self.assertEqual(next(r for r in production["inputs"] if r["key"] == "station_actual")["record_count"], 1)
+            dates = client.get("/api/v1/workbench/bootstrap?station_id=lanneng&source_mode=production").json()["dates"]
+            self.assertEqual(len(dates), 1)
+            self.assertEqual(client.get("/api/v1/workbench/bootstrap?station_id=other&source_mode=production").json()["dates"], [])
+            overview = client.get("/api/v1/workbench/overview", params={"station_id": "lanneng", "date": dates[0], "source_mode": "production"})
+            self.assertEqual(overview.status_code, 400, overview.text)
+        station = dict(self.store.db.execute("SELECT * FROM station WHERE station_id='lanneng'").fetchone())
+        station.update(station_id="real-test-site", station_code="real-test-site", availability_basis="verified_arrival")
+        config = dict(self.store.db.execute("SELECT * FROM station_config_version WHERE station_id='lanneng' LIMIT 1").fetchone())
+        config.update(config_version_id="real-test-config", station_id=station["station_id"], source_id=source["source_id"], availability_basis="verified_arrival")
+        actual.update(actual_id="real-test-valid-actual", station_id=station["station_id"])
+        with self.store.db:
+            self.store.append("station", station)
+            self.store.append("station_config_version", config)
+            self.store.append("station_actual", actual)
+        with TestClient(create_app()) as client:
+            overview = client.get("/api/v1/workbench/overview", params={"station_id": station["station_id"], "date": dates[0], "source_mode": "production"})
+            self.assertEqual(overview.status_code, 200, overview.text)
+            self.assertIn("pit_engine", overview.json()["query_path"])
+
+
 if __name__ == "__main__":
     unittest.main()

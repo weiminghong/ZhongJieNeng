@@ -1,32 +1,32 @@
 /* Generated from DESIGN.md. Do not edit. */
 :root, [data-theme="standard-light"] {
-  --ce-color-background: #eef2f7;
+  --ce-color-background: #f2f5f3;
   --ce-color-surface: #ffffff;
-  --ce-color-surface-container: #f7f9fc;
-  --ce-color-on-surface: #172033;
-  --ce-color-on-surface-variant: #52627a;
-  --ce-color-outline: #d7dfeb;
-  --ce-color-primary: #1e5eff;
-  --ce-color-primary-container: #e8efff;
+  --ce-color-surface-container: #f6f8f6;
+  --ce-color-on-surface: #173a2e;
+  --ce-color-on-surface-variant: #53665d;
+  --ce-color-outline: #d8e1db;
+  --ce-color-primary: #176447;
+  --ce-color-primary-container: #e7f1e9;
   --ce-color-on-primary: #ffffff;
-  --ce-color-success: #0f766e;
-  --ce-color-success-container: #d9f6f1;
-  --ce-color-warning: #b45309;
-  --ce-color-warning-container: #fff4de;
+  --ce-color-success: #13796a;
+  --ce-color-success-container: #e0f2ec;
+  --ce-color-warning: #9a5b08;
+  --ce-color-warning-container: #fff2d9;
   --ce-color-error: #b42318;
   --ce-color-error-container: #fee4e2;
-  --ce-color-data: #657991;
-  --ce-color-scrim: #17203366;
+  --ce-color-data: #6d7e74;
+  --ce-color-scrim: #173a2e66;
 }
 [data-theme="high-contrast-light"] {
-  --ce-color-background: #e5eaf1;
+  --ce-color-background: #e9eeea;
   --ce-color-surface: #ffffff;
-  --ce-color-surface-container: #f1f4f8;
-  --ce-color-on-surface: #080f1c;
-  --ce-color-on-surface-variant: #344054;
-  --ce-color-outline: #8996a8;
-  --ce-color-primary: #1043c7;
-  --ce-color-primary-container: #e1e9ff;
+  --ce-color-surface-container: #f0f5f1;
+  --ce-color-on-surface: #092318;
+  --ce-color-on-surface-variant: #344d3f;
+  --ce-color-outline: #879c8d;
+  --ce-color-primary: #0a4c30;
+  --ce-color-primary-container: #dcece0;
   --ce-color-on-primary: #ffffff;
   --ce-color-success: #065b52;
   --ce-color-success-container: #d5f2e9;
@@ -34,6 +34,6 @@
   --ce-color-warning-container: #ffedc8;
   --ce-color-error: #971b12;
   --ce-color-error-container: #ffdedb;
-  --ce-color-data: #44556c;
-  --ce-color-scrim: #080f1c88;
+  --ce-color-data: #445d50;
+  --ce-color-scrim: #09231888;
 }

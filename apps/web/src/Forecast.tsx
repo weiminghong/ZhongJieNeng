@@ -1,7 +1,15 @@
 import { useCallback, useRef, useState } from "react";
 import { ArrowUpRight, Crosshair, GitCompareArrows } from "lucide-react";
 import type { EChartsOption, LineSeriesOption } from "echarts";
-import type { Scope, Theme, Overview, Comparison, Interval, Inference, RuntimeModel } from "./types";
+import type {
+  Scope,
+  Theme,
+  Overview,
+  Comparison,
+  Interval,
+  Inference,
+  RuntimeModel,
+} from "./types";
 import { fmt, time, stamp, query, useResource, request } from "./api";
 import ForecastAnalytics from "./ForecastAnalytics";
 import { Panel, Status, Segments } from "./components";
@@ -45,19 +53,34 @@ export default function Forecast({
   const [inferBusy, setInferBusy] = useState(false);
   const [inferError, setInferError] = useState("");
   const [runtimeId, setRuntimeId] = useState("");
-  const runtime = useResource<{ models: RuntimeModel[] }>("/api/v1/models/runtime", revision);
+  const runtime = useResource<{ models: RuntimeModel[] }>(
+    "/api/v1/models/runtime",
+    revision,
+  );
   const context = JSON.stringify(scope);
   const currentContext = useRef(context);
   currentContext.current = context;
   async function infer() {
     const captured = context;
-    setInferBusy(true); setInferError("");
-    try { const result = await request<Inference>("/api/v1/models/predict", { ...scope, model_version_id: runtimeId || null }); if (captured === currentContext.current) onOverlay(result); }
-    catch (e) { if (captured === currentContext.current) setInferError((e as Error).message); }
-    finally { setInferBusy(false); }
+    setInferBusy(true);
+    setInferError("");
+    try {
+      const result = await request<Inference>("/api/v1/models/predict", {
+        ...scope,
+        model_version_id: runtimeId || null,
+      });
+      if (captured === currentContext.current) onOverlay(result);
+    } catch (e) {
+      if (captured === currentContext.current)
+        setInferError((e as Error).message);
+    } finally {
+      setInferBusy(false);
+    }
   }
   const intervals = data?.intervals || [];
-  const chosen = compare.data?.versions.find((v) => v.run_id === version) ?? compare.data?.versions[0];
+  const chosen =
+    compare.data?.versions.find((v) => v.run_id === version) ??
+    compare.data?.versions[0];
   const powerOption = useCallback((): EChartsOption => {
     const base = baseOption();
     const series = (
@@ -79,14 +102,19 @@ export default function Forecast({
       itemStyle: { color: color(token) },
     });
     const comparison: LineSeriesOption = {
-      ...series(`对比 v${chosen?.version ?? "—"}`, "compare_forecast_mw", "data", true),
+      ...series(
+        `对比 v${chosen?.version ?? "—"}`,
+        "compare_forecast_mw",
+        "data",
+        true,
+      ),
       data: chosen
         ? intervals.map(
             (r) =>
               chosen.values.find((p) => p.interval_start === r.interval_start)
                 ?.value ?? null,
           )
-        : intervals.map((r) => r.compare_forecast_mw),
+        : intervals.map(() => null),
     };
     return {
       ...base,
@@ -119,10 +147,38 @@ export default function Forecast({
           borderColor: color("outline"),
           fillerColor: color("primary-container"),
           handleStyle: { color: color("primary") },
+          dataBackground: {
+            lineStyle: { color: color("data") },
+            areaStyle: { color: color("surface-container") },
+          },
+          selectedDataBackground: {
+            lineStyle: { color: color("primary") },
+            areaStyle: { color: color("primary-container") },
+          },
         },
       ],
       series: [
-        ...(overlay ? [{ name: "小模型实时推理", type: "line" as const, symbol: "none", data: intervals.map(r => overlay.points.find(p => p.interval_start === r.interval_start)?.predicted_mw ?? null), lineStyle: { color: color("error"), type: "dashed" as const, width: 2 }, itemStyle: { color: color("error") } }] : []),
+        ...(overlay
+          ? [
+              {
+                name: "小模型实时推理",
+                type: "line" as const,
+                symbol: "none",
+                data: intervals.map(
+                  (r) =>
+                    overlay.points.find(
+                      (p) => p.interval_start === r.interval_start,
+                    )?.predicted_mw ?? null,
+                ),
+                lineStyle: {
+                  color: color("error"),
+                  type: "dashed" as const,
+                  width: 2,
+                },
+                itemStyle: { color: color("error") },
+              },
+            ]
+          : []),
         {
           name: "置信下界",
           type: "line",
@@ -169,12 +225,29 @@ export default function Forecast({
           markLine: {
             symbol: "none",
             label: {
-              formatter: "14:00 数据时钟",
+              formatter: `${data ? time(data.cutoff_at) : ""} 数据时钟`,
               color: color("on-surface-variant"),
               position: "insideEndTop",
             },
             lineStyle: { color: color("warning"), type: "dashed" },
-            data: [{ xAxis: "14:00" }],
+            data: [
+              ...(data &&
+              intervals.some((r) => r.interval_start === data.cutoff_at)
+                ? [{ xAxis: time(data.cutoff_at) }]
+                : []),
+              ...(scope.selected_interval
+                ? [
+                    {
+                      xAxis: time(scope.selected_interval),
+                      label: { formatter: "选中 {b}" },
+                      lineStyle: {
+                        color: color("primary"),
+                        type: "solid" as const,
+                      },
+                    },
+                  ]
+                : []),
+            ],
           },
         },
         series("日内修正 · 新增信息", "id_corrected_mw", "warning"),
@@ -195,7 +268,15 @@ export default function Forecast({
         },
       ],
     };
-  }, [intervals, version, chosen, capacity, overlay]);
+  }, [
+    intervals,
+    version,
+    chosen,
+    capacity,
+    overlay,
+    data,
+    scope.selected_interval,
+  ]);
   const priceOption = useCallback((): EChartsOption => {
     const b = baseOption();
     return {
@@ -225,6 +306,7 @@ export default function Forecast({
         {
           name: "价差 Δ",
           type: "bar",
+          itemStyle: { color: color("success-container") },
           yAxisIndex: 1,
           data: intervals.map((r) => ({
             value: r.spread_yuan_mwh,
@@ -272,20 +354,20 @@ export default function Forecast({
           </p>
         </div>
         <div className="kpi">
+          <span>配对功率 RMSE</span>
+          <strong>
+            {fmt(k?.power_rmse_mw)}
+            <small>MW</small>
+          </strong>
+          <p>与 MAE 使用同一批有效实测</p>
+        </div>
+        <div className="kpi">
           <span>已到达实测电量</span>
           <strong>
             {fmt(k?.energy_actual_mwh)}
             <small>MWh</small>
           </strong>
           <p>同期预测 {fmt(k?.energy_forecast_matched_mwh)} MWh</p>
-        </div>
-        <div className="kpi">
-          <span>实时 − 日前均价差</span>
-          <strong>
-            {fmt(k?.avg_spread)}
-            <small>元/MWh</small>
-          </strong>
-          <p>仅统计两侧结算价格齐备时段</p>
         </div>
         <div className="kpi">
           <span>数据完整性</span>
@@ -355,7 +437,15 @@ export default function Forecast({
                 </div>
               }
             >
-              {overlay && <div className="selection-bar"><span>{overlay.model_name} v{overlay.version} · {fmt(overlay.latency_ms, 0)} ms · {overlay.trained_scope}</span><button onClick={onClearOverlay}>清除叠加</button></div>}
+              {overlay && (
+                <div className="selection-bar">
+                  <span>
+                    {overlay.model_name} v{overlay.version} ·{" "}
+                    {fmt(overlay.latency_ms, 0)} ms · {overlay.trained_scope}
+                  </span>
+                  <button onClick={onClearOverlay}>清除叠加</button>
+                </div>
+              )}
               <Chart
                 label="实测、预测、日内修正、晴空基线和置信带的96点功率图"
                 option={powerOption}
@@ -397,7 +487,33 @@ export default function Forecast({
               subtitle="相同目标日、cutoff 与共同有效实测样本；演示场景版本未经模型训练"
               action={<GitCompareArrows size={19} className="text-primary" />}
             >
-              <div className="head-tools"><select aria-label="预测小模型运行时" value={runtimeId} onChange={e => setRuntimeId(e.target.value)}><option value="">内置 PIT 残差模型</option>{runtime.data?.models.filter(m => m.ready && m.source_mode === scope.source_mode && m.task === "day_ahead_power").map(m => <option key={m.model_version_id} value={m.model_version_id}>{m.model_name} v{m.version}</option>)}</select><button disabled={inferBusy} onClick={() => void infer()}>{inferBusy ? "正在推理…" : "实时推理叠加"}</button></div>
+              <div className="head-tools">
+                <select
+                  aria-label="预测小模型运行时"
+                  value={runtimeId}
+                  onChange={(e) => setRuntimeId(e.target.value)}
+                >
+                  <option value="">内置 PIT 残差模型</option>
+                  {runtime.data?.models
+                    .filter(
+                      (m) =>
+                        m.ready &&
+                        m.source_mode === scope.source_mode &&
+                        m.task === "day_ahead_power",
+                    )
+                    .map((m) => (
+                      <option
+                        key={m.model_version_id}
+                        value={m.model_version_id}
+                      >
+                        {m.model_name} v{m.version}
+                      </option>
+                    ))}
+                </select>
+                <button disabled={inferBusy} onClick={() => void infer()}>
+                  {inferBusy ? "正在推理…" : "实时推理叠加"}
+                </button>
+              </div>
               <Status error={inferError || runtime.error} />
               <Status
                 loading={compare.loading}
@@ -427,12 +543,23 @@ export default function Forecast({
                     </thead>
                     <tbody>
                       {compare.data.versions.map((v) => (
-                        <tr key={v.run_id} className={chosen?.run_id === v.run_id ? "selected-row" : undefined}>
+                        <tr
+                          key={v.run_id}
+                          className={
+                            chosen?.run_id === v.run_id
+                              ? "selected-row"
+                              : undefined
+                          }
+                        >
                           <td>
                             <strong>
                               {v.model_name} v{v.version}
                             </strong>
-                            <small>同 cutoff · 未训练场景</small>
+                            <small>
+                              {scope.source_mode === "synthetic"
+                                ? "同 cutoff · 未训练合成场景"
+                                : "同 cutoff · 查看模型证据"}
+                            </small>
                           </td>
                           <td>{v.sample_count}</td>
                           <td>
@@ -463,7 +590,9 @@ export default function Forecast({
                               onClick={() => setVersion(v.run_id)}
                               aria-pressed={chosen?.run_id === v.run_id}
                             >
-                              {chosen?.run_id === v.run_id ? "已叠加" : "叠加对比"}
+                              {chosen?.run_id === v.run_id
+                                ? "已叠加"
+                                : "叠加对比"}
                             </button>
                           </td>
                         </tr>

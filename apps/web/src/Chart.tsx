@@ -42,6 +42,13 @@ export function color(name: string) {
 export function baseOption(): EChartsOption {
   return {
     animation: false,
+    color: [
+      color("primary"),
+      color("success"),
+      color("warning"),
+      color("data"),
+      color("error"),
+    ],
     textStyle: {
       color: color("on-surface-variant"),
       fontFamily: "Microsoft YaHei, sans-serif",
@@ -50,6 +57,7 @@ export function baseOption(): EChartsOption {
     tooltip: {
       trigger: "axis",
       confine: true,
+      axisPointer: { type: "line", lineStyle: { color: color("primary") } },
       backgroundColor: color("surface"),
       borderColor: color("outline"),
       textStyle: { color: color("on-surface") },
@@ -97,8 +105,13 @@ export default function Chart({
       echarts.connect(group);
     }
     if (onPoint)
-      chart.on("click", (p) => {
-        if (typeof p.dataIndex === "number") onPoint(p.dataIndex);
+      chart.getZr().on("click", (event) => {
+        const point = [event.offsetX, event.offsetY];
+        if (chart.containPixel("grid", point)) {
+          const coordinates = chart.convertFromPixel({ gridIndex: 0 }, point);
+          const index = Math.round(coordinates[0]);
+          if (Number.isFinite(index) && index >= 0) onPoint(index);
+        }
       });
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(ref.current!);
