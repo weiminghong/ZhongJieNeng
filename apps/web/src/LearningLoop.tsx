@@ -225,12 +225,20 @@ export default function LearningLoop({
     answer: string;
     llm_mode: string;
   }> | null>(null);
+  const tuneStart = data?.splits.tune[0];
+  const tuneEnd = data?.splits.tune[1];
+  const inTune = !!tuneStart && !!tuneEnd && day >= tuneStart && day <= tuneEnd;
+  useEffect(() => {
+    if (tuneStart && tuneEnd) setValidation(day >= tuneStart && day <= tuneEnd);
+  }, [day, tuneStart, tuneEnd]);
   useEffect(() => {
     if (!data) return;
     if (!day) setDay(data.splits.tune[1]);
     if (!modelId)
       setModelId(
-        data.models.find((m) => m.payload.algorithm === "ridge")?.id || "",
+        data.active.detail.model_id ||
+          data.models.find((m) => m.payload.algorithm === "ridge")?.id ||
+          "",
       );
   }, [data, day, modelId]);
   useEffect(() => {
@@ -585,6 +593,7 @@ export default function LearningLoop({
                         <input
                           type="checkbox"
                           checked={validation}
+                          disabled={!inTune}
                           onChange={(e) => setValidation(e.target.checked)}
                         />
                         调参验证（不宣称独立测试）
@@ -715,7 +724,7 @@ export default function LearningLoop({
                       {activePrediction.payload.date} ·{" "}
                       {activePrediction.payload.validation_only
                         ? "调参验证推理"
-                        : "提升窗口推理"}
+                        : "研究推理"}
                     </h3>
                     <p>
                       逻辑预测截止{" "}

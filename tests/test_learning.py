@@ -66,6 +66,8 @@ class LearningTests(unittest.TestCase):
         ml.release(self.store, ridge, "activate", "tester", "通过固定门槛")
         self.assertEqual(ml.active(self.store)["detail"]["model_id"], ridge)
         p = ml.prediction(self.store, ridge, "2024-02-26")
+        with self.assertRaisesRegex(ValueError, "调参验证只能"):
+            ml.prediction(self.store, ridge, "2024-02-26", True)
         self.assertEqual(len(p["payload"]["points"]), 96)
         ml.release(self.store, d2, "rollback", "tester", "验证回滚")
         back = ml.prediction(self.store, d2, "2024-02-26")
@@ -175,6 +177,14 @@ class LearningTests(unittest.TestCase):
         self.assertEqual(len(ml.objects(self.store, "monitor_snapshot")), 1)
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM ml_job").fetchone()[0], 0)
         self.assertFalse(ml.state(self.store, "monitor")["detail"]["changed"])
+
+    def test_unknown_job_cannot_consume_final_audit_seal(self):
+        j, ids = self.trained()
+        ml.event(self.store, j["id"], "unknown_exit", reason="generated recovery fixture")
+        self.store.db.commit()
+        with self.assertRaisesRegex(ValueError, "尚无成功退出"):
+            ml.final_audit(self.store, ids[0], "test", "不可消耗封存资格")
+        self.assertEqual(ml.state(self.store, "final:"+self.sha)["state"], "registered")
 
 
 if __name__ == "__main__":

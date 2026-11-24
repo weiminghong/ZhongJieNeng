@@ -365,6 +365,8 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
     m = get_object(store, model_id, "model"); p = m["payload"]
     d = date.fromisoformat(day)
     cutoff = d-timedelta(days=1)
+    if validation and not p["splits"]["tune"][0] <= day <= p["splits"]["tune"][1]:
+        raise ValueError("调参验证只能使用冻结的调参窗口；其他日期请选择研究推理")
     if day < p["splits"]["tune"][0] or (not validation and d <= date.fromisoformat(p["selection_end"])+timedelta(days=1)):
         raise ValueError("预测日必须晚于训练标签和选择边界；调参集仅能显式验证")
     final_state = state(store, "final:"+m["source_hash"])
@@ -483,6 +485,8 @@ def release(store, oid, action, actor, reason):
                 raise ValueError("该模型状态不允许进入影子验证")
             event(store, oid, "shadow", actor=actor, reason=reason)
         elif action == "rollback":
+            if m["state"] == "rejected":
+                raise ValueError("已拒绝版本不能作为回滚目标")
             if current["detail"].get("previous_model_id") != oid:
                 raise ValueError("只能回滚到上一实际主版本")
             validate_model(read_npz(p["weights"]))
@@ -525,6 +529,8 @@ def release(store, oid, action, actor, reason):
 
 def final_audit(store, oid, actor, reason):
     m = get_object(store, oid, "model"); p = m["payload"]
+    if job(store, p["job_id"])["state"] != "succeeded":
+        raise ValueError("所属任务尚无成功退出记录，不能启封最终审计")
     seal = "final:"+m["source_hash"]
     store.db.execute("BEGIN IMMEDIATE")
     try:
