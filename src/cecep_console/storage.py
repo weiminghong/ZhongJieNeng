@@ -34,6 +34,9 @@ UPPER_TABLES = {
     "deviation_case",
     "agent_proactive_brief",
     "public_reference_run",
+    "ml_object",
+    "ml_job",
+    "ml_event",
 }
 
 

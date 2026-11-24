@@ -1,0 +1,204 @@
+.learning-workspace {
+  padding: 20px 0;
+  min-width: 0;
+}
+.learning-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.learning-heading h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.learning-heading p,
+.learning-help,
+.learning-boundary {
+  color: var(--ce-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.learning-boundary {
+  background: var(--ce-color-warning-container);
+  color: var(--ce-color-warning);
+  padding: 12px 16px;
+  border-radius: 6px;
+}
+.learning-control-strip,
+.learning-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.learning-control-strip {
+  font-size: 12px;
+}
+.learning-workspace .panel {
+  margin: 0 0 20px;
+  padding: 0 20px 20px;
+}
+.learning-workspace .panel-head {
+  padding: 20px 0 16px;
+}
+.learning-form {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.learning-form label,
+.learning-workspace label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.learning-form label {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.learning-reason {
+  flex: 1 1 320px;
+}
+.learning-reason textarea {
+  width: 100%;
+  resize: vertical;
+}
+.learning-workspace input,
+.learning-workspace select,
+.learning-workspace textarea {
+  max-width: 100%;
+  min-width: 0;
+}
+.learning-workspace input[type="checkbox"] {
+  min-height: 16px;
+  width: 16px;
+  accent-color: var(--ce-color-primary);
+}
+.learning-splits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 0 20px;
+  border-top: 1px solid var(--ce-color-outline);
+}
+.learning-splits div {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.learning-splits span {
+  color: var(--ce-color-on-surface-variant);
+}
+.learning-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+}
+.learning-main,
+.learning-side {
+  min-width: 0;
+}
+.learning-side label {
+  display: grid;
+  margin: 12px 0;
+}
+.learning-side button {
+  margin: 4px 8px 8px 0;
+}
+.learning-stacked {
+  display: grid;
+}
+.learning-workspace td small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ce-color-on-surface-variant);
+  max-width: 44ch;
+  white-space: normal;
+}
+.learning-workspace h3 {
+  margin: 24px 0 12px;
+  font-size: 14px;
+}
+.learning-workspace details {
+  margin-top: 16px;
+}
+.learning-workspace summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0;
+}
+.learning-workspace details p,
+.learning-side p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.learning-comparison {
+  display: block;
+}
+.learning-evidence {
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.learning-evidence dt {
+  color: var(--ce-color-on-surface-variant);
+  margin-top: 12px;
+}
+.learning-evidence dd {
+  margin: 4px 0;
+}
+.learning-empty {
+  padding: 28px 0;
+  color: var(--ce-color-on-surface-variant);
+}
+.learning-workspace pre {
+  max-width: 560px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.learning-prediction {
+  padding-top: 12px;
+}
+.learning-answer {
+  white-space: pre-line;
+  line-height: 1.8;
+  padding-top: 16px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1150px) {
+  .learning-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .learning-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
+@media (max-width: 680px) {
+  .learning-side {
+    display: block;
+  }
+  .learning-workspace {
+    padding-top: 12px;
+  }
+  .learning-form label {
+    flex: 1 1 100%;
+  }
+  .learning-workspace select {
+    width: 100%;
+  }
+  .learning-actions label {
+    flex: 1 1 100%;
+  }
+  .learning-splits div {
+    flex: 1 1 100%;
+  }
+}

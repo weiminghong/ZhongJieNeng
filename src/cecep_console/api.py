@@ -1,11 +1,15 @@
 """Unified workbench API. SQLite remains the source of all displayed business data."""
 
 from contextlib import asynccontextmanager
+import asyncio
+from contextlib import suppress
 from datetime import date as Date, datetime
 import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -46,6 +50,7 @@ from .serving import now
 from .serving import TZ
 from .readiness import connection_readiness, available_dates
 from . import public_data
+from .learning_api import router as learning_router
 
 
 class PublicScope(BaseModel):
@@ -228,9 +233,42 @@ def create_app():
     async def lifespan(app):
         with Store() as store:
             store.initialize()
-        yield
+        worker = None
+        log = None
+        supervisor = None
+        if os.environ.get("CECEP_ML_WORKER") == "1":
+            from .learning import root
+            log = (root() / "controller.log").open("ab")
+            worker = subprocess.Popen([sys.executable, "-m", "cecep_console.ml_worker"], stdout=log, stderr=log, close_fds=True)
+            async def supervise():
+                nonlocal worker
+                while True:
+                    await asyncio.sleep(2)
+                    if worker.poll() is not None:
+                        from .learning import event
+                        with Store() as store:
+                            event(store, "worker", "controller_exited", observed_exit_code=worker.returncode)
+                            store.db.commit()
+                        worker = subprocess.Popen([sys.executable, "-m", "cecep_console.ml_worker"], stdout=log, stderr=log, close_fds=True)
+            supervisor = asyncio.create_task(supervise())
+        try:
+            yield
+        finally:
+            if supervisor:
+                supervisor.cancel()
+                with suppress(asyncio.CancelledError):
+                    await supervisor
+            if worker and worker.poll() is None:
+                worker.terminate()
+                try:
+                    worker.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    worker.kill(); worker.wait()
+            if log:
+                log.close()
 
     app = FastAPI(title="中节能光伏交易工作台", version="1.0.0", lifespan=lifespan)
+    app.include_router(learning_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):

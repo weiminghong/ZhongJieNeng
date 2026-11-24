@@ -34,6 +34,7 @@ import Rsi from "./Rsi";
 import ContextRail from "./ContextRail";
 import ConnectionStatus from "./ConnectionStatus";
 import PublicWorkspace from "./PublicWorkspace";
+import LearningLoop from "./LearningLoop";
 
 const tabs = [
   {
@@ -67,6 +68,12 @@ const tabs = [
     description: "偏差复核与模型审批",
   },
   {
+    id: "learning",
+    title: "模型训练与迭代",
+    icon: RefreshCw,
+    description: "真实训练、复核与研究发布",
+  },
+  {
     id: "connections",
     title: "接入状态",
     icon: Cable,
@@ -75,6 +82,7 @@ const tabs = [
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
 const publicTitles: Record<Tab, string> = {
+  learning: "模型训练与迭代",
   forecast: "量价分析",
   raw: "原始数据",
   trading: "价差情景",
@@ -114,6 +122,9 @@ export default function App() {
     const value = new URLSearchParams(location.search).get("tab");
     return tabs.some((t) => t.id === value) ? (value as Tab) : "forecast";
   });
+  useEffect(() => {
+    if (!publicActive && tab === "learning") setTab("forecast");
+  }, [publicActive, tab]);
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem("cecep-theme") === "high-contrast-light"
       ? "high-contrast-light"
@@ -227,18 +238,20 @@ export default function App() {
           </strong>
         </a>
         <nav>
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              className={tab === t.id ? "is-active" : ""}
-              aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => setTab(t.id)}
-            >
-              <t.icon size={19} />
-              <span>{publicActive ? publicTitles[t.id] : t.title}</span>
-              <ChevronRight size={14} />
-            </button>
-          ))}
+          {tabs
+            .filter((t) => publicActive || t.id !== "learning")
+            .map((t) => (
+              <button
+                key={t.id}
+                className={tab === t.id ? "is-active" : ""}
+                aria-current={tab === t.id ? "page" : undefined}
+                onClick={() => setTab(t.id)}
+              >
+                <t.icon size={19} />
+                <span>{publicActive ? publicTitles[t.id] : t.title}</span>
+                <ChevronRight size={14} />
+              </button>
+            ))}
         </nav>
         <div className="energy-sidebar-bottom">
           <div className="solar-sign" aria-hidden="true">
@@ -420,12 +433,16 @@ export default function App() {
         </div>
         <div className="energy-scroll">
           {publicActive ? (
-            <PublicWorkspace
-              tab={tab}
-              onNavigate={setTab}
-              theme={theme}
-              revision={revision}
-            />
+            tab === "learning" ? (
+              <LearningLoop theme={theme} revision={revision} />
+            ) : (
+              <PublicWorkspace
+                tab={tab}
+                onNavigate={setTab}
+                theme={theme}
+                revision={revision}
+              />
+            )
           ) : (
             <>
               <div className="energy-source-notice">

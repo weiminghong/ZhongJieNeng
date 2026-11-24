@@ -1,0 +1,205 @@
+{
+  "contract_id": "cecep-closed-loop-v1",
+  "phase": "frozen_contract",
+  "objective": "Executable public-market price learning/review/retraining/research-release loop; separate from site production qualification",
+  "source": {
+    "path": "/home/priv/cecep_rsi_demo/vendor/price_forecast/data/价格预测数据集.csv",
+    "sha256": "5d00ffd26a75078c521ebecbd5aa8eba172d1eaf2816e8b64f05d08a8eee7954",
+    "rows": 71520,
+    "days": 745,
+    "interval_minutes": 15,
+    "region": "Shandong aggregated market",
+    "source_kind": "public_reference",
+    "readonly": true
+  },
+  "task": {
+    "id": "rt_price_day_ahead_reference",
+    "target_column": "实时价格",
+    "unit": "CNY/MWh",
+    "target_intervals": 96,
+    "forecast_cutoff": "D-1 09:00 Asia/Shanghai",
+    "latest_feature_event_day": "D-2",
+    "time_policy": "historical_assumed",
+    "availability_timestamps_verified": false,
+    "production_eligible": false,
+    "allow_negative_predictions": true
+  },
+  "splits": {
+    "train": [
+      "2024-01-08",
+      "2025-08-30"
+    ],
+    "tune": [
+      "2025-09-01",
+      "2025-09-29"
+    ],
+    "promotion": [
+      "2025-10-01",
+      "2025-11-29"
+    ],
+    "final_audit": [
+      "2025-12-01",
+      "2026-01-14"
+    ],
+    "random_shuffle": false,
+    "final_audit_policy": "freeze candidate before first use; never reuse as fresh independent evidence after tuning on results",
+    "eligible_row_counts": "pending builder validation; do not invent",
+    "boundary_policy": "One excluded day between partitions; training-label and parameter-selection event end must precede the next forecast cutoff. Retraining moves comparisons beyond its new training/selection cutoff."
+  },
+  "features": [
+    "rt_lag_2d_same_slot",
+    "rt_lag_3d_same_slot",
+    "rt_lag_7d_same_slot",
+    "rt_mean_d2",
+    "rt_min_d2",
+    "rt_max_d2",
+    "rt_mean_d7",
+    "slot_sin",
+    "slot_cos",
+    "weekday_sin",
+    "weekday_cos",
+    "month_sin",
+    "month_cos"
+  ],
+  "excluded_inputs": [
+    "target-day actual power/load/DA/RT",
+    "source forecast columns without publication provenance",
+    "serving tables",
+    "validation/test-derived preprocessing"
+  ],
+  "preprocessing": {
+    "fit_scope": "train only",
+    "missing_features": "train-fitted imputation with explicit missing indicators",
+    "missing_targets": "exclude and retain exclusion manifest",
+    "precision": "float64",
+    "label_construction": "use original RT field only; no proxy targets",
+    "base_feature_count": 13,
+    "missing_indicators": "Feature schema records appended indicators and transformed dimension separately"
+  },
+  "candidate": {
+    "algorithm": "NumPy Ridge",
+    "alpha": 1,
+    "artifact_format": "NPZ + JSON; allow_pickle=False",
+    "trainable_parameters": "regression coefficients and intercept; train-only preprocessing statistics",
+    "seed": 42,
+    "meaning": "first workflow candidate, not a claim of best forecasting method"
+  },
+  "baselines": [
+    "seasonal_naive_d2",
+    "seasonal_naive_d7",
+    "train_weekday_slot_median"
+  ],
+  "evaluation": {
+    "primary": "MAE",
+    "secondary": [
+      "RMSE",
+      "MBE",
+      "negative-price slices",
+      "spike slices",
+      "coverage"
+    ],
+    "matched_mask": true,
+    "independent_unit": "trading day",
+    "mapes_used": false,
+    "source_hash_and_feature_value_hash_separate": true,
+    "source_file_forecasts_are_not_a_matched_baseline": true,
+    "uncertainty": {
+      "method": "paired moving-block bootstrap by trading day",
+      "block_days": 7,
+      "replicates": 2000,
+      "confidence": 0.95,
+      "seed": 42,
+      "interpretation": "interval crossing zero means inconclusive, not equivalence"
+    }
+  },
+  "planned_budget": {
+    "device": "CPU",
+    "gpu_requested": false,
+    "concurrent_training_jobs": 1,
+    "threads_per_job_max": 4,
+    "timeout_minutes": 30,
+    "measured_training_runtime": null,
+    "measured_training_memory": null
+  },
+  "storage": {
+    "workspace": "/home/priv/ZhongJieNeng",
+    "artifacts": "runtime/ml/{dataset_versions,jobs,models,evaluations}",
+    "new_migration_start": 5,
+    "immutable_existing_migrations": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "states": "append-only events; rebuildable projections",
+    "dataset_version_policy": "Reuse frozen slices for parameter-only changes; create a dataset version only for actual source/feature/row/split changes"
+  },
+  "states": {
+    "job": [
+      "queued",
+      "preparing",
+      "training",
+      "evaluating",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "interrupted",
+      "unknown_exit"
+    ],
+    "model": [
+      "candidate",
+      "evaluated",
+      "shadow",
+      "research_active",
+      "retired",
+      "rejected"
+    ],
+    "feedback": [
+      "draft",
+      "submitted",
+      "confirmed",
+      "rejected",
+      "incorporated_in_dataset"
+    ]
+  },
+  "evidence_required": [
+    "source and split manifests",
+    "model hash and load validation",
+    "native predictions and paired scores",
+    "feedback linked to prediction and source row",
+    "new dataset/candidate lineage",
+    "approval or rejection evidence",
+    "rollback with real pointer and inference check",
+    "cancel/restart/failure handling"
+  ],
+  "nonclaims": [
+    "This frozen contract is not an execution receipt or an improvement claim",
+    "No measured improvement asserted",
+    "No Zhejiang physical-site qualification",
+    "No source downloads or original vendor edits"
+  ],
+  "verified_environment": {
+    "date": "2026-11-24T05:43:51.411203+00:00",
+    "numpy": true,
+    "pandas": true,
+    "sklearn": false,
+    "joblib": false,
+    "lightgbm": false,
+    "pyarrow": false,
+    "free_bytes_at_check": 237921533952,
+    "free_inodes_at_check": 123126976
+  },
+  "execution_record": "runtime/learning-loop-acceptance.json",
+  "research_release_policy": {
+    "initial": "D-2 baseline only; no gain claim",
+    "upgrade": "paired 7-day block bootstrap upper95(delta MAE)<0 and RMSE<=incumbent",
+    "actor_verification": "intranet_declared"
+  },
+  "feedback_retrain_policy": "Confirmed tune-window review may support parameter-only retraining on the same frozen dataset; promotion/final feedback cannot reuse that comparison window or alter source labels",
+  "monitor_policy": {
+    "interval_seconds": 30,
+    "expected_intervals": 96,
+    "missing_target_warn_above": 0,
+    "automatic_training": false
+  }
+}

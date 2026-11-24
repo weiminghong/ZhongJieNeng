@@ -30,7 +30,7 @@ def connection_readiness(store, station_id, source_mode):
             dict(key="inference", label="光伏模型推理", available=any(m["ready"] for m in models), note="内置 PIT 残差拟合可执行；本地权重与 HTTP 服务可登记，输入和实际调用结果分别验证。"),
             dict(key="review", label="反馈、案例与审批记录", available=True, note="人工反馈、案例入库、版本审批和回滚均追加保存；演示审批不触发真实训练。"),
             dict(key="settlement", label="确定性收益沙盘", available=True, note="仅对实测与价格齐备时段结算；示例免考阈值不代表正式市场规则。"),
-            dict(key="training", label="持久化训练调度", available=False, note="尚未接入训练调度器；现场历史拟合与登记外部权重不等于完成正式训练。"),
+            dict(key="training", label="当前场站的训练调度", available=False, note="山东公开市场研究已提供独立的电价训练队列；本场站的功率训练与真实生产验收仍待接入。"),
             dict(key="production_validation", label="生产效果验收", available=False, note="需真实输入、固定训练与测试划分、模型产物和业务评估记录；本页面不以接口可用代替精度验收。"),
         ],
         notice="合成演示与生产输入严格分开。模型登记状态、适配器就绪和已验证业务效果是不同事实；生产数据与正式规则需要另行接入核验。",

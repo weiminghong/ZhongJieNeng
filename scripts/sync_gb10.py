@@ -424,10 +424,16 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         ]:
             api("/api/storage/" + endpoint)
         receipt["db_after"] = inspect()
+        learning = api("/api/v1/ml/overview")
+        capabilities = api("/api/v1/ml/capabilities")
+        assert capabilities["tasks"][0]["task"] == "rt_price_day_ahead_reference"
+        assert capabilities["tasks"][0]["production_eligible"] is False
+        assert learning["policy"]["time_policy"] == "historical_assumed"
+        receipt["learning_readiness"] = {"worker": learning["worker"]["state"], "jobs": len(learning["jobs"]), "models": len(learning["models"]), "production_eligible": False}
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
-            and receipt["db_after"]["schema_version"] == 4
+            and receipt["db_after"]["schema_version"] == 5
         )
         receipt["db_write_verification"] = json.loads(
             python(
