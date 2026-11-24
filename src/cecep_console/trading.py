@@ -214,6 +214,14 @@ def simulate_plan(store, plan_id, *, cutoff=None, persist=False):
         "scope": "仅已到达实测与结算价的配对时段",
         "items": items,
         "rule": parameters,
+        "rule_version_id": rule["rule_version_id"],
+        "contract_summary": {
+            "record_count": len(contract_map),
+            "registered_energy_mwh": sum(c["contract_energy_mwh"] for c in contract_map.values()) if contract_map else None,
+            "price_min_yuan_mwh": min((c["contract_price_yuan_mwh"] for c in contract_map.values()), default=None),
+            "price_max_yuan_mwh": max((c["contract_price_yuan_mwh"] for c in contract_map.values()), default=None),
+            "basis": "目标日已登记且在截止时点可见的分时合约；不等同已结算电量",
+        },
         "cutoff_at": cutoff,
         "warning": (
             "合成演示沙盘；±5% 容量免考为示例口径，非真实市场结算规则"

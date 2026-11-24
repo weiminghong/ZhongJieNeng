@@ -17,12 +17,16 @@ export function SandboxPanel({
   revision: number;
 }) {
   const [bid, setBid] = useState(1);
-  const [exempt, setExempt] = useState(0.05);
+  const [exempt, setExempt] = useState(plan.rule.exempt_fraction);
   const [penalty, setPenalty] = useState<number | null>(null);
   const [result, setResult] = useState<Sandbox | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const scopeKey = query(scope);
+  useEffect(() => {
+    setExempt(plan.rule.exempt_fraction);
+    setPenalty(null);
+  }, [plan.plan_id, plan.rule.exempt_fraction]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -92,7 +96,7 @@ export function SandboxPanel({
           <button
             onClick={() => {
               setBid(1);
-              setExempt(0.05);
+              setExempt(plan.rule.exempt_fraction);
               setPenalty(null);
             }}
           >

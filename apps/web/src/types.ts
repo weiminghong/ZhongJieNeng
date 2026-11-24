@@ -112,6 +112,14 @@ export interface Comparison {
   };
 }
 export interface Plan {
+  rule_version_id: string;
+  contract_summary: {
+    record_count: number;
+    registered_energy_mwh: number | null;
+    price_min_yuan_mwh: number | null;
+    price_max_yuan_mwh: number | null;
+    basis: string;
+  };
   plan_id: string;
   plan_name: string;
   net_revenue_yuan: number | null;

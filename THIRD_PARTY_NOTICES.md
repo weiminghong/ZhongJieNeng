@@ -1,5 +1,14 @@
 # 第三方组件
 
+## PriceForecast 公开市场参考数据
+
+- 来源 https://github.com/ronaldowzy/price_forecast
+- GB10 已有副本提交 `96ddcf9b020e98be35c9b8eb1c0f8b6e1fb8dc6f`。
+- MIT License，Copyright (c) 2026 ronaldowzy；原许可保留在服务器已有仓库中。
+- 读取其 `data/价格预测数据集.csv`；数据公开与隐私说明见上游 `docs/data_privacy.md`。
+- 数据为山东省级聚合市场参考，不能表示中节能浙江场站实测或本站模型训练效果。
+- 不修改该副本或重新下载数据；仅通过主工作台自有适配层读取，在追加式记录中保留源文件哈希、行号和分析快照。
+
 ## solar-forecast
 
 - 来源 https://github.com/tusharbeckham/solar-forecast

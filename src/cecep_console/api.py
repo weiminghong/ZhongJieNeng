@@ -1,7 +1,7 @@
 """Unified workbench API. SQLite remains the source of all displayed business data."""
 
 from contextlib import asynccontextmanager
-from datetime import date as Date
+from datetime import date as Date, datetime
 import json
 import os
 from pathlib import Path
@@ -43,7 +43,27 @@ from .agent_service import query_agent, agent_history
 from .model_runtime import list_runtime_models, register_runtime_model, run_model_inference
 from .proactive import run_proactive_analysis, latest_proactive_briefs
 from .serving import now
+from .serving import TZ
 from .readiness import connection_readiness, available_dates
+from . import public_data
+
+
+class PublicScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: str
+    cursor: int = Field(default=96, ge=0, le=96)
+    source_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    question: str = Field(default="分析当前范围的量价变化与风险", min_length=1, max_length=4000)
+    selected_slot: int | None = Field(default=None, ge=0, le=95)
+    reason: str = Field(default="", max_length=4000)
+    quantity_mwh: float = Field(default=1, ge=0, le=1000000, allow_inf_nan=False)
+    fee_yuan_mwh: float = Field(default=0, ge=0, le=1000000, allow_inf_nan=False)
+    persist: bool = False
+
+    @field_validator("date")
+    @classmethod
+    def valid_date(cls, value):
+        return Date.fromisoformat(value).isoformat()
 
 
 class Scope(BaseModel):
@@ -147,7 +167,7 @@ def resolve_scope(scope, store):
 
 def overview(store, scope):
     cutoff = resolve_scope(scope, store)
-    if scope.mode == "replay":
+    if scope.mode == "replay" or (scope.mode == "live" and scope.source_mode == "production" and scope.date in available_dates(store, scope.station_id, scope.source_mode)):
         intervals = build_intervals(
             store,
             scope.station_id,
@@ -214,6 +234,8 @@ def create_app():
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):
+        if request.url.path.startswith("/api/v1/public-data/"):
+            return JSONResponse(status_code=422, content={"error": "公开数据参数无效，请检查日期、回放位置、电量和费用。"})
         if request.url.path.startswith("/api/v1/settings/") or request.url.path == "/api/v1/models/register":
             # Validation errors must never echo a submitted credential or body.
             return JSONResponse(
@@ -275,6 +297,38 @@ def create_app():
     def health():
         return {"status": "ok", "service": "cecep-workbench-v1"}
 
+    @app.get("/api/v1/public-data/catalog")
+    def public_catalog():
+        return public_data.catalog()
+
+    @app.get("/api/v1/public-data/series")
+    def public_series(scope: PublicScope = Depends()):
+        return public_data.series(scope.date, scope.cursor, scope.source_hash)
+
+    @app.post("/api/v1/public-data/analyze")
+    def public_analysis(scope: PublicScope, store: Store = Depends(get_store)):
+        result = public_data.analyze(store, scope.date, scope.cursor, scope.question, scope.source_hash)
+        return JSONResponse(result, status_code=502 if result["provider_error"] else 200)
+
+    @app.post("/api/v1/public-data/review")
+    def public_review(scope: PublicScope, store: Store = Depends(get_store)):
+        return public_data.review(store, scope.date, scope.cursor, scope.selected_slot, scope.reason, scope.source_hash)
+
+    @app.post("/api/v1/public-data/scenario")
+    def public_scenario(scope: PublicScope, store: Store = Depends(get_store)):
+        result = public_data.scenario(scope.date, scope.cursor, scope.quantity_mwh, scope.fee_yuan_mwh, scope.source_hash)
+        if scope.persist:
+            if not scope.source_hash:
+                raise ValueError("保存测算必须绑定数据版本")
+            data = public_data.series(scope.date, scope.cursor, scope.source_hash)
+            result["saved"] = public_data.save_run(store, data, "scenario", result["basis"], result)
+        return result
+
+    @app.get("/api/v1/public-data/history")
+    def public_history(date: str, source_hash: str, all_versions: bool = False, store: Store = Depends(get_store)):
+        Date.fromisoformat(date)
+        return public_data.history(store, None if all_versions else source_hash, date)
+
     @app.get("/api/v1/models/runtime")
     def runtime_models(store: Store = Depends(get_store)):
         return {"models": list_runtime_models(store)}
@@ -314,9 +368,13 @@ def create_app():
             store,
             "SELECT s.station_id,s.station_name,s.latitude,s.longitude,c.capacity_ac_mw FROM station s JOIN station_config_version c USING(station_id) WHERE c.revision_no=(SELECT max(revision_no) FROM station_config_version c2 WHERE c2.station_id=s.station_id) ORDER BY s.station_id",
         )
+        dates = available_dates(store, station_id, source_mode)
+        clock = data_clock(store, source_mode)
+        clock_day = datetime.fromisoformat(clock.replace("Z", "+00:00")).astimezone(TZ).date().isoformat()
+        default_date = clock_day if clock_day in dates else max((d for d in dates if d <= clock_day), default=dates[0] if dates else "")
         return {
             "stations": stations,
-            "dates": available_dates(store, station_id, source_mode),
+            "dates": dates,
             "modes": ["live", "replay", "post"],
             "source_modes": [
                 r[0]
@@ -324,8 +382,8 @@ def create_app():
                     "SELECT DISTINCT source_mode FROM serving_interval_wide"
                 )
             ],
-            "default_date": "2026-11-20",
-            "data_clock": data_clock(store, source_mode),
+            "default_date": default_date,
+            "data_clock": clock,
             "models": model_states(store),
             "timezone": "Asia/Shanghai",
             "interval_minutes": 15,

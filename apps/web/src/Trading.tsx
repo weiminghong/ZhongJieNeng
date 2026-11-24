@@ -179,7 +179,7 @@ export default function Trading({
         </p>
         <button onClick={recalculate} disabled={busy}>
           <Calculator size={15} />
-          {busy ? "正在重算…" : "重新测算并落库"}
+          {busy ? "正在计算并保存…" : "保存本次结算测算"}
         </button>
       </div>
       <Status
@@ -322,25 +322,32 @@ export default function Trading({
             >
               <div className="rule-grid">
                 <div>
-                  <strong>中长期锁价</strong>
-                  <p>日前基准电量的 70%，380 元/MWh</p>
+                  <strong>目标日已登记合约</strong>
+                  <p>
+                    {fmt(chosen.contract_summary.registered_energy_mwh)} MWh ·{" "}
+                    {fmt(chosen.contract_summary.price_min_yuan_mwh)}—
+                    {fmt(chosen.contract_summary.price_max_yuan_mwh)} 元/MWh
+                  </p>
+                  <small>{chosen.contract_summary.basis}</small>
                 </div>
                 <div>
                   <strong>偏差免考阈值</strong>
                   <p>
-                    装机容量 ±{fmt(plans[0].rule.exempt_fraction * 100, 0)}% ×
+                    装机容量 ±{fmt(chosen.rule.exempt_fraction * 100, 0)}% ×
                     0.25h
                   </p>
                 </div>
                 <div>
                   <strong>超额偏差罚金</strong>
                   <p>
-                    {fmt(plans[0].rule.penalty_yuan_mwh, 0)}{" "}
+                    {fmt(chosen.rule.penalty_yuan_mwh, 0)}{" "}
                     元/MWh，超过免考部分计费
                   </p>
                 </div>
               </div>
-              <div className="panel-note warning-copy">{plans[0].warning}</div>
+              <div className="panel-note warning-copy">
+                {chosen.warning} · 规则版本 {chosen.rule_version_id}
+              </div>
               <div className="formula">
                 合同电量 × 合同价 + (申报电量 − 合同电量) × 日前价 + (实测电量 −
                 申报电量) × 实时价 − 超免考偏差电量 × 考核单价

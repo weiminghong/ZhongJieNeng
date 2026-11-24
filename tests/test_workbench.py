@@ -90,9 +90,9 @@ class WorkbenchTests(unittest.TestCase):
                 ).fetchone()[0],
                 checksum,
             )
-            self.assertEqual(old.inspect()["schema_version"], 3)
+            self.assertEqual(old.inspect()["schema_version"], 4)
             self.assertEqual(
-                len(old.db.execute("SELECT * FROM schema_migration").fetchall()), 3
+                len(old.db.execute("SELECT * FROM schema_migration").fetchall()), 4
             )
             old.initialize()
 
@@ -388,7 +388,7 @@ class WorkbenchTests(unittest.TestCase):
     def test_legacy_storage_routes(self):
         with TestClient(create_app()) as client:
             self.assertEqual(
-                client.get("/api/storage/health").json()["schema_version"], 3
+                client.get("/api/storage/health").json()["schema_version"], 4
             )
             common = {"cutoff": "2026-11-20T14:00:00+08:00", "demo": "1"}
             self.assertEqual(
@@ -873,6 +873,20 @@ class WorkbenchTests(unittest.TestCase):
         replay = search_knowledge_rag(self.store, "相同天气复核证据", "lanneng", "2026-11-23T10:02:00.000000Z")
         self.assertEqual(replay[0]["chunk_id"], documents[2]["chunk_id"])
         self.assertFalse(any(r["chunk_id"] == "future-case-chunk" for r in replay))
+
+    def test_registered_contract_change_updates_summary_and_settlement(self):
+        from cecep_console.serving import day_bounds
+        plan = self.store.db.execute("SELECT * FROM bidding_plan WHERE station_id='lanneng' AND trading_date='2026-11-20' LIMIT 1").fetchone()
+        start, end = day_bounds("2026-11-20")
+        contract = dict(self.store.db.execute("SELECT * FROM contract_position WHERE station_id='lanneng' AND interval_start>=? AND interval_start<? AND contract_energy_mwh>0 ORDER BY interval_start LIMIT 1", (start, end)).fetchone())
+        before = simulate_plan(self.store, plan["plan_id"])
+        contract.update(contract_id="updated-contract-price", revision_no=contract["revision_no"]+1, contract_price_yuan_mwh=contract["contract_price_yuan_mwh"]+15)
+        with self.store.db:
+            self.store.append("contract_position", contract)
+        after = simulate_plan(self.store, plan["plan_id"])
+        self.assertEqual(after["contract_summary"]["price_max_yuan_mwh"], contract["contract_price_yuan_mwh"])
+        self.assertEqual(before["contract_summary"]["registered_energy_mwh"], after["contract_summary"]["registered_energy_mwh"])
+        self.assertAlmostEqual(after["net_revenue_yuan"]-before["net_revenue_yuan"], contract["contract_energy_mwh"]*15, places=6)
 
     def test_connection_status_separates_synthetic_inputs_from_production(self):
         with TestClient(create_app()) as client:

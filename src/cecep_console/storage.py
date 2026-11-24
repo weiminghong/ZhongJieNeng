@@ -33,6 +33,7 @@ UPPER_TABLES = {
     "agent_response",
     "deviation_case",
     "agent_proactive_brief",
+    "public_reference_run",
 }
 
 

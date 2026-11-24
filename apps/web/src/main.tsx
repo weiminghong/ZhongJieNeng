@@ -5,6 +5,7 @@ import "./styles/tokens.css";
 import "./styles/tailwind-theme.css";
 import "./styles/app.css";
 import "./styles/workspace.css";
+import "./styles/public-workspace.css";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

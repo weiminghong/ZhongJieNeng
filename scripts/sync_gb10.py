@@ -427,7 +427,7 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
-            and receipt["db_after"]["schema_version"] == 3
+            and receipt["db_after"]["schema_version"] == 4
         )
         receipt["db_write_verification"] = json.loads(
             python(
@@ -470,6 +470,31 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert receipt["runtime_db_verification"] == {"prediction_points":96, "brief_rows":1, "inference_tool_rows":1}
         receipt["scenario"] = {"agent_run_id":scenario_agent["agent_run_id"], "artifacts":len(scenario_agent["artifacts"]),
                                "sandbox":next(c["output"]["sandbox"] for c in scenario_agent["tool_calls"] if c["tool_name"] == "run_what_if_forecast")}
+        public_catalog = api("/api/v1/public-data/catalog")
+        assert public_catalog["available"] and public_catalog["metadata"]["row_count"] > 0
+        public_day = public_catalog["default_date"]
+        public_hash = public_catalog["metadata"]["source_hash"]
+        public_scope = {"date": public_day, "cursor": 48, "source_hash": public_hash}
+        public_url = "/api/v1/public-data/series?date=" + public_day + "&source_hash=" + public_hash
+        public_early = api(public_url + "&cursor=48")
+        public_next = api(public_url + "&cursor=49")
+        assert public_early["summary"]["visible_records"] == 48 and public_next["summary"]["visible_records"] == 49
+        assert all(p["source_values"] is None and p["pv_actual_mw"] is None for p in public_early["points"][48:])
+        public_scenario = api("/api/v1/public-data/scenario", {**public_scope, "quantity_mwh": 2, "fee_yuan_mwh": 3})
+        price_pairs = [p for p in public_early["points"] if p["visible"] and p["spread_yuan_mwh"] is not None]
+        expected_exposure = sum((p["rt_price"] - p["da_price"] - 3) * 2 for p in price_pairs)
+        assert price_pairs and abs(public_scenario["net_spread_yuan"] - expected_exposure) < 1e-8
+        public_answer = api("/api/v1/public-data/analyze", {**public_scope, "question": "分析当前公开历史范围的光伏列误差和价差，说明数据来源与适用边界"})
+        assert public_answer["status"] == "completed" and len(public_answer["evidence"]["source_records"]) == 48
+        public_review = api("/api/v1/public-data/review", {**public_scope, "selected_slot": 47, "reason": "部署验收公开样例复核：核对源文件行号、日期与价差，不代表生产归因，不纳入训练。"})
+        public_history = api("/api/v1/public-data/history?date=" + public_day + "&source_hash=" + public_hash)
+        public_ids = {run["run_id"] for run in public_history["runs"]}
+        assert public_answer["run_id"] in public_ids and public_review["run_id"] in public_ids
+        receipt["public_data"] = {"metadata": public_catalog["metadata"], "verified_date": public_day,
+                                  "visible_records": [48, 49], "future_records_hidden": True,
+                                  "scenario_net_spread_yuan": public_scenario["net_spread_yuan"],
+                                  "analysis_run_id": public_answer["run_id"], "review_run_id": public_review["run_id"],
+                                  "analysis_mode": public_answer["llm_mode"]}
         private_after = python("import hashlib;from cecep_console.model_settings import settings_path;p=settings_path();print(hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'absent')")
         assert private_after == private_before and api("/api/v1/settings/llm") == settings_before
         receipt["private_llm_configuration_unchanged"] = True

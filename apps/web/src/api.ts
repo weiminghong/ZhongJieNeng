@@ -29,34 +29,81 @@ export async function request<T>(
     );
   return data as T;
 }
-export function useResource<T>(path: string | null, revision = 0) {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+export function useResource<T>(
+  path: string | null,
+  revision: number | string = 0,
+  refreshMs = 0,
+) {
+  const [state, setState] = useState<{
+    path: string | null;
+    data: T | null;
+    error: string;
+    checking: boolean;
+    checkedAt: string | null;
+  }>({ path: null, data: null, error: "", checking: false, checkedAt: null });
   useEffect(() => {
     if (!path) {
-      setData(null);
-      setError("");
-      setLoading(false);
       return;
     }
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    setData(null);
-    request<T>(path, undefined, controller.signal)
-      .then((value) => {
-        if (!controller.signal.aborted) setData(value);
-      })
-      .catch((e: Error) => {
-        if (e.name !== "AbortError") setError(e.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [path, revision]);
-  return { data, error, loading };
+    let controller: AbortController | null = null;
+    let stopped = false;
+    async function check() {
+      controller?.abort();
+      const current = new AbortController();
+      controller = current;
+      setState((s) => ({
+        path,
+        data: s.path === path ? s.data : null,
+        error: "",
+        checking: true,
+        checkedAt: s.path === path ? s.checkedAt : null,
+      }));
+      try {
+        const data = await request<T>(path!, undefined, current.signal);
+        if (!stopped && !current.signal.aborted)
+          setState({
+            path,
+            data,
+            error: "",
+            checking: false,
+            checkedAt: new Date().toISOString(),
+          });
+      } catch (e) {
+        if (!stopped && !current.signal.aborted)
+          setState((s) => ({
+            ...s,
+            error: (e as Error).message,
+            checking: false,
+          }));
+      }
+    }
+    void check();
+    const timer =
+      refreshMs > 0
+        ? window.setInterval(() => {
+            if (document.visibilityState === "visible") void check();
+          }, refreshMs)
+        : null;
+    const visible = () => {
+      if (refreshMs > 0 && document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      stopped = true;
+      controller?.abort();
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [path, revision, refreshMs]);
+  const same = !!path && state.path === path;
+  const data = same ? state.data : null;
+  return {
+    data,
+    error: same ? state.error : "",
+    loading: !!path && (!same || (!data && state.checking)),
+    refreshing: same && state.checking,
+    checkedAt: same ? state.checkedAt : null,
+  };
 }
 export function fmt(n: number | null | undefined, decimals = 2) {
   return n === null || n === undefined
