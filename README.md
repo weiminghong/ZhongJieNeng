@@ -93,3 +93,16 @@ python scripts/sync_gb10.py
 价差情景按 `Σ[(实时价−日前价−每MWh假设费用)×每时段假设电量]` 计算，属于事后敞口研究，不冒充场站合同结算或可执行套利策略。只在明确点击保存时追加分析、情景或复核记录；`004_public_reference_runs.sql` 保存文件哈希、范围、源行号和原始记录快照，旧迁移不变。
 
 公开数据 API 位于 `/api/v1/public-data/{catalog,series,scenario,analyze,review,history}`。该工作区与“场站工作台（镇海）”隔离；后者保留已有生产接口和合成演示。场站容量按配置版本读取，合约电量/价格与规则参数按数据库记录展示，不再在前端写死70%或380元/MWh。
+
+
+## 参考软件后的前端与业务交互
+
+公开研究默认进入总览。参考用户提供的GridCast软件，按“取长补短”改进页面组织，不迁入另一项目的模型、负荷单位、用户口令或考核指标。保留原React与FastAPI、光伏场站工作区、既有数据、真实权重与追加式审批。
+
+主要页面：`tab=overview` 总览、`raw` 数据管理、`learning` 训练与模型、`forecast` 预测分析、`compare` 同口径评估、`decompose` 历史分解、`monitor` 运行日志。`market` 保留原光伏量价观察；`source_review` 保留原始记录的复核历史；`rsi` 承接模型预测复核与研究审批。URL中的数据、模型、预测和复核ID跨页面接续。
+
+新增 `/api/v1/research/*` 都是只读视图：`summary`、`data-quality`、`predictions`（日期筛选与分页）、`comparison`、`decomposition`、`prediction-details/{id}` 与 `predictions/{id}/export`。它们直接读取已有CSV和模型产物；查看页面不训练、不启封最终审计、不修改原始标签。最终审计页只读取已经冻结的候选和其既有基线结果，重复输出折叠但不删除版本。
+
+预测解释校验真实权重与特征哈希，并将线性贡献与已保存预测核对。经验范围采用既有调参残差分位数，仅作为 `research-display-v1` 分析视图，不属于独立区间校准或新增模型效果证明。历史分解采用明确的均值/中位数描述，不冒称STL或因果分析。训练协议、生产资格和自动训练限制继续沿用冻结合同。
+
+本轮验收写入忽略的 `runtime/reference-integration-audit.json`；引用压缩包只读，未执行其启动脚本，未将其中的说明当作新指令。界面未照搬CSV上传删除、用户权限和混合模型的假入口：既有源文件仍只读，企业鉴权、额外模型或数据接入需要相应后端能力。

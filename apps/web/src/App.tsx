@@ -13,6 +13,10 @@ import {
   X,
   PanelRightOpen,
   Cable,
+  LayoutDashboard,
+  GitCompare,
+  Layers3,
+  Radio,
 } from "lucide-react";
 import type {
   Bootstrap,
@@ -35,8 +39,51 @@ import ContextRail from "./ContextRail";
 import ConnectionStatus from "./ConnectionStatus";
 import PublicWorkspace from "./PublicWorkspace";
 import LearningLoop from "./LearningLoop";
+import {
+  ResearchOverview,
+  ResearchComparison,
+  ResearchDecomposition,
+  ResearchMonitor,
+  ResearchDataSummary,
+} from "./ResearchPages";
 
 const tabs = [
+  {
+    id: "overview",
+    title: "总览",
+    icon: LayoutDashboard,
+    description: "数据、模型与最近预测",
+  },
+  {
+    id: "compare",
+    title: "评估对比",
+    icon: GitCompare,
+    description: "同一窗口的真实模型比较",
+  },
+  {
+    id: "decompose",
+    title: "时序分解",
+    icon: Layers3,
+    description: "历史趋势、周期与剩余波动",
+  },
+  {
+    id: "monitor",
+    title: "运行监测",
+    icon: Radio,
+    description: "数据更新、任务日志与业务历程",
+  },
+  {
+    id: "market",
+    title: "量价观察",
+    icon: Activity,
+    description: "原始光伏与电价的联动回放",
+  },
+  {
+    id: "source_review",
+    title: "原始复核",
+    icon: ClipboardCheck,
+    description: "原始记录的历史复核快照",
+  },
   {
     id: "forecast",
     title: "预测分析",
@@ -82,13 +129,56 @@ const tabs = [
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
 const publicTitles: Record<Tab, string> = {
-  learning: "模型训练与迭代",
-  forecast: "量价分析",
-  raw: "原始数据",
+  overview: "总览",
+  compare: "评估对比",
+  decompose: "时序分解",
+  monitor: "运行监测",
+  market: "量价观察",
+  source_review: "原始记录复核",
+  learning: "训练与模型",
+  forecast: "预测分析",
+  raw: "数据管理",
   trading: "价差情景",
   agent: "数据分析",
-  rsi: "人工复核",
+  rsi: "复核审批",
   connections: "来源与流程",
+};
+const siteTabs: Tab[] = [
+  "forecast",
+  "raw",
+  "trading",
+  "agent",
+  "rsi",
+  "connections",
+];
+const publicOrder: Tab[] = [
+  "overview",
+  "raw",
+  "learning",
+  "forecast",
+  "compare",
+  "decompose",
+  "monitor",
+  "market",
+  "trading",
+  "agent",
+  "rsi",
+  "connections",
+];
+const publicNotes: Record<Tab, string> = {
+  overview: "数据与核心研究指标",
+  raw: "原始行、版本与质量",
+  learning: "任务与真实权重版本",
+  forecast: "推理、历史记录与解释",
+  compare: "同掩码比较与审计",
+  decompose: "趋势、周期与剩余项",
+  monitor: "数据回流与真实日志",
+  market: "原始功率与价格回放",
+  trading: "假设参数与确定性价差",
+  agent: "工具计算与来源证据",
+  rsi: "确认、重训与版本审批",
+  source_review: "原始记录与复核快照",
+  connections: "来源边界与接入状态",
 };
 
 export default function App() {
@@ -120,10 +210,14 @@ export default function App() {
   );
   const [tab, setTab] = useState<Tab>(() => {
     const value = new URLSearchParams(location.search).get("tab");
-    return tabs.some((t) => t.id === value) ? (value as Tab) : "forecast";
+    return tabs.some((t) => t.id === value)
+      ? (value as Tab)
+      : publicActive
+        ? "overview"
+        : "forecast";
   });
   useEffect(() => {
-    if (!publicActive && tab === "learning") setTab("forecast");
+    if (!publicActive && !siteTabs.includes(tab)) setTab("forecast");
   }, [publicActive, tab]);
   const [theme, setTheme] = useState<Theme>(() =>
     localStorage.getItem("cecep-theme") === "high-contrast-light"
@@ -224,13 +318,28 @@ export default function App() {
   const current = tabs.find((t) => t.id === tab)!;
   const llmMode = bootstrap.data?.llm_mode || "deterministic_tools_only";
   const noData = !!bootstrap.data && !bootstrap.data.dates.length;
+  function navigateResearch(
+    next: string,
+    context: Record<string, string> = {},
+  ) {
+    if (!tabs.some((t) => t.id === next)) return;
+    const u = new URL(location.href);
+    if ((context.ml_model || context.ml_date) && !context.ml_prediction)
+      u.searchParams.delete("ml_prediction");
+    Object.entries(context).forEach(([k, v]) => u.searchParams.set(k, v));
+    history.replaceState(null, "", u);
+    setTab(next as Tab);
+    requestAnimationFrame(() =>
+      document.querySelector(".energy-scroll")?.scrollTo({ top: 0 }),
+    );
+  }
   return (
-    <div className="energy-shell">
+    <div className={`energy-shell ${publicActive ? "research-shell" : ""}`}>
       <aside className="energy-sidebar" aria-label="业务导航">
         <a
           className="energy-brand"
           href="#forecast"
-          onClick={() => setTab("forecast")}
+          onClick={() => setTab(publicActive ? "overview" : "forecast")}
         >
           <Sun size={26} aria-hidden="true" />
           <strong>
@@ -239,16 +348,34 @@ export default function App() {
         </a>
         <nav>
           {tabs
-            .filter((t) => publicActive || t.id !== "learning")
+            .filter(
+              (t) =>
+                t.id !== "source_review" &&
+                (publicActive || siteTabs.includes(t.id)),
+            )
+            .sort((a, b) =>
+              publicActive
+                ? publicOrder.indexOf(a.id) - publicOrder.indexOf(b.id)
+                : 0,
+            )
             .map((t) => (
               <button
                 key={t.id}
                 className={tab === t.id ? "is-active" : ""}
                 aria-current={tab === t.id ? "page" : undefined}
-                onClick={() => setTab(t.id)}
+                onClick={() => navigateResearch(t.id)}
               >
                 <t.icon size={19} />
-                <span>{publicActive ? publicTitles[t.id] : t.title}</span>
+                <span>
+                  {publicActive ? (
+                    <>
+                      <strong>{publicTitles[t.id]}</strong>
+                      <small>{publicNotes[t.id]}</small>
+                    </>
+                  ) : (
+                    t.title
+                  )}
+                </span>
                 <ChevronRight size={14} />
               </button>
             ))}
@@ -433,15 +560,68 @@ export default function App() {
         </div>
         <div className="energy-scroll">
           {publicActive ? (
-            tab === "learning" ? (
-              <LearningLoop theme={theme} revision={revision} />
-            ) : (
-              <PublicWorkspace
-                tab={tab}
-                onNavigate={setTab}
+            tab === "overview" ? (
+              <ResearchOverview
                 theme={theme}
                 revision={revision}
+                navigate={navigateResearch}
               />
+            ) : tab === "compare" ? (
+              <ResearchComparison
+                theme={theme}
+                revision={revision}
+                navigate={navigateResearch}
+              />
+            ) : tab === "decompose" ? (
+              <ResearchDecomposition theme={theme} revision={revision} />
+            ) : tab === "monitor" ? (
+              <ResearchMonitor
+                revision={revision}
+                navigate={navigateResearch}
+              />
+            ) : ["learning", "forecast", "rsi"].includes(tab) ? (
+              <LearningLoop
+                key={tab}
+                theme={theme}
+                revision={revision}
+                focus={
+                  tab === "learning"
+                    ? "training"
+                    : tab === "forecast"
+                      ? "prediction"
+                      : "review"
+                }
+                onNavigate={navigateResearch}
+              />
+            ) : (
+              <>
+                {tab === "raw" && (
+                  <ResearchDataSummary
+                    revision={revision}
+                    navigate={navigateResearch}
+                  />
+                )}
+                <PublicWorkspace
+                  tab={
+                    tab === "market"
+                      ? "forecast"
+                      : tab === "source_review"
+                        ? "rsi"
+                        : (tab as "raw" | "trading" | "agent" | "connections")
+                  }
+                  onNavigate={(t) =>
+                    navigateResearch(
+                      t === "forecast"
+                        ? "market"
+                        : t === "rsi"
+                          ? "source_review"
+                          : t,
+                    )
+                  }
+                  theme={theme}
+                  revision={revision}
+                />
+              </>
             )
           ) : (
             <>

@@ -430,6 +430,25 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert capabilities["tasks"][0]["production_eligible"] is False
         assert learning["policy"]["time_policy"] == "historical_assumed"
         receipt["learning_readiness"] = {"worker": learning["worker"]["state"], "jobs": len(learning["jobs"]), "models": len(learning["models"]), "production_eligible": False}
+        research = api("/api/v1/research/summary")
+        quality = api("/api/v1/research/data-quality")
+        history = api("/api/v1/research/predictions?limit=5")
+        assert research["production_eligible"] is False
+        assert quality["metadata"]["source_hash"] == research["catalog"]["metadata"]["source_hash"]
+        assert quality["metadata"]["row_count"] == 71520
+        receipt["research_views"] = {"source_rows": quality["metadata"]["row_count"], "prediction_records": history["total"], "readonly_views": True}
+        if research["active_model"]:
+            reference_id = research["active_model"]["id"]
+            comparison = api("/api/v1/research/comparison?model_id="+reference_id+"&partition=promotion")
+            assert comparison["label_coverage"] <= 1 and len(comparison["rows"]) >= 4
+            receipt["research_views"]["comparison_methods"] = len(comparison["rows"])
+        if research["latest_prediction"]:
+            prediction_id = research["latest_prediction"]["id"]
+            insights = api("/api/v1/research/prediction-details/"+prediction_id+"?confidence=0.95")
+            assert insights["view_protocol"] == "research-display-v1"
+            if insights["explanation"]:
+                assert insights["explanation"]["reconstruction_verified"] is True
+            receipt["research_views"]["prediction_id"] = prediction_id
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
