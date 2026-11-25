@@ -615,6 +615,11 @@ export function ResearchComparison({
   useEffect(() => {
     if (modelId) {
       const u = new URL(location.href);
+      if (
+        u.searchParams.get("ml_model") &&
+        u.searchParams.get("ml_model") !== modelId
+      )
+        u.searchParams.delete("ml_prediction");
       u.searchParams.set("ml_model", modelId);
       history.replaceState(null, "", u);
     }
@@ -866,6 +871,20 @@ export function ResearchDecomposition({
   );
   const [field, setField] = useState("rt_price");
   const [windowDays, setWindowDays] = useState(14);
+  const [cursor, setCursor] = useState(() => {
+    const n = Number(new URLSearchParams(location.search).get("cursor") ?? 96);
+    return Number.isInteger(n) && n >= 0 && n <= 96 ? n : 96;
+  });
+  useEffect(() => {
+    if (!day) return;
+    const u = new URL(location.href);
+    if (u.searchParams.get("ml_date") && u.searchParams.get("ml_date") !== day)
+      u.searchParams.delete("ml_prediction");
+    u.searchParams.set("date", day);
+    u.searchParams.set("ml_date", day);
+    u.searchParams.set("cursor", String(cursor));
+    history.replaceState(null, "", u);
+  }, [day, cursor]);
   useEffect(() => {
     if (!day && catalog.data?.default_date) setDay(catalog.data.default_date);
   }, [day, catalog.data]);
@@ -883,7 +902,7 @@ export function ResearchDecomposition({
     scope: { start: string; end: string };
   }>(
     day && catalog.data?.metadata
-      ? `/api/v1/research/decomposition?trading_date=${day}&field=${field}&days=${windowDays}&source_hash=${catalog.data.metadata.source_hash}`
+      ? `/api/v1/research/decomposition?trading_date=${day}&field=${field}&days=${windowDays}&cursor=${cursor}&source_hash=${catalog.data.metadata.source_hash}`
       : null,
     revision,
   );
@@ -935,9 +954,20 @@ export function ResearchDecomposition({
               ))}
             </select>
           </label>
+          <label>
+            末日已展示时段
+            <input
+              type="number"
+              min={0}
+              max={96}
+              value={cursor}
+              onChange={(e) => setCursor(Number(e.target.value))}
+            />
+          </label>
         </div>
         <p className="research-help">
-          这是历史描述，不是因果解释，也不会把分解后的未来值送进模型。缺失实测不补成0。当前窗口按完整交易日分析。
+          这是历史描述，不是因果解释，也不会把分解后的未来值送进模型。缺失实测不补成0。末日只分析已展示的{" "}
+          {cursor}/96 个时段。
         </p>
       </Panel>
       <Status

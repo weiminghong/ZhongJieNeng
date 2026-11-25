@@ -27,6 +27,7 @@ class Command(BaseModel):
     date: str | None = None
     slot: int = Field(default=0, ge=0, le=95)
     validation_only: bool = False
+    observation_id: str | None = Field(default=None, max_length=100)
 
     @field_validator("date")
     @classmethod
@@ -60,14 +61,14 @@ def capabilities():
 def lineage(oid: str, store: Store = Depends(store_dep)):
     start = ml.get_object(store, oid)
     source = start["source_hash"]
-    records = store.db.execute("SELECT object_id,kind,parent_id,payload_json FROM ml_object WHERE source_hash=? ORDER BY rowid", (source,)).fetchall()
+    records = store.db.execute("SELECT object_id,kind,parent_id,payload_json FROM ml_object WHERE source_hash=? OR (kind='observation_match' AND json_extract(payload_json,'$.input_source_hash')=?) OR (kind='source_revision' AND source_hash IN (SELECT source_hash FROM ml_object WHERE kind='observation_match' AND json_extract(payload_json,'$.input_source_hash')=?)) ORDER BY rowid", (source,source,source)).fetchall()
     nodes, edges = [], []
     for r in records:
         payload = json.loads(r[3])
         nodes.append(dict(id=r[0], kind=r[1], state=ml.state(store, r[0])["state"]))
         if r[2]:
             edges.append(dict(source=r[2], target=r[0], relation="parent"))
-        for key in ("job_id", "dataset_id", "model_id", "prediction_id", "feedback_id"):
+        for key in ("job_id", "dataset_id", "model_id", "prediction_id", "feedback_id", "source_revision_id", "observation_id", "previous_observation_id"):
             if payload.get(key) and payload[key] != r[2]:
                 edges.append(dict(source=payload[key], target=r[0], relation=key))
     for r in store.db.execute("SELECT job_id,dataset_id,parent_job_id FROM ml_job WHERE dataset_id IN (SELECT object_id FROM ml_object WHERE source_hash=?)", (source,)):
@@ -122,7 +123,7 @@ def command(body: Command, request: Request, store: Store = Depends(store_dep)):
             raise ValueError("推理必须指定日期")
         return ml.prediction(store, b.object_id, b.date, b.validation_only, b.source_hash or None)
     if b.action == "feedback":
-        return ml.feedback(store, b.object_id, b.slot, b.actor, b.reason)
+        return ml.feedback(store, b.object_id, b.slot, b.actor, b.reason, b.observation_id)
     if b.action == "analyze":
         result = ml.analyze_prediction(store, b.object_id, b.reason)
         if result["payload"]["provider_error"]:

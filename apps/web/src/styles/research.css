@@ -329,6 +329,81 @@
 .research-model-search {
   margin-bottom: 16px;
 }
+.data-flow-stages {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.data-flow-stage-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.data-flow-stage {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  width: 100%;
+  min-width: 0;
+  min-height: 210px;
+  white-space: normal;
+  text-align: left;
+  justify-content: initial;
+  background: var(--ce-color-surface-container);
+}
+.data-flow-stage .badge {
+  justify-self: start;
+}
+.data-flow-stage code {
+  overflow-wrap: anywhere;
+}
+.data-flow-stage small {
+  color: var(--ce-color-on-surface-variant);
+  line-height: 1.8;
+}
+.data-flow-stage-wrap > svg {
+  flex-shrink: 0;
+  color: var(--ce-color-primary);
+}
+.data-flow-proof {
+  margin-top: 20px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  line-height: 1.9;
+}
+.data-flow-proof summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.data-flow-review {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+@media (max-width: 1100px) {
+  .data-flow-stages {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 650px) {
+  .data-flow-stages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .data-flow-stage {
+    min-height: 0;
+  }
+  .data-flow-stage-wrap > svg {
+    transform: rotate(90deg);
+  }
+  .data-flow-stage-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 .research-history-pages {
   display: flex;
   align-items: center;

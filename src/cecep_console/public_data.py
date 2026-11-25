@@ -113,8 +113,8 @@ def catalog():
     return dict(available=True, checked_at=now(), metadata=meta, dates=dates, default_date=dates[-1])
 
 
-def series(day, cursor=96, expected_hash=None):
-    meta, dates, days = dataset()
+def series(day, cursor=96, expected_hash=None, *, source_dataset=None):
+    meta, dates, days = source_dataset or dataset()
     if expected_hash and expected_hash != meta["source_hash"]:
         raise ValueError("源文件版本已变化，请重新检查数据后继续")
     if day not in days:
@@ -151,8 +151,8 @@ def series(day, cursor=96, expected_hash=None):
     return dict(metadata=meta, scope=scope, scope_hash=digest(scope), points=points, summary=summary, latest=visible[-1] if visible else None)
 
 
-def scenario(day, cursor, quantity_mwh, fee_yuan_mwh, expected_hash=None):
-    data = series(day, cursor, expected_hash)
+def scenario(day, cursor, quantity_mwh, fee_yuan_mwh, expected_hash=None, *, source_dataset=None):
+    data = series(day, cursor, expected_hash, source_dataset=source_dataset)
     if not all(math.isfinite(v) and v >= 0 for v in (quantity_mwh, fee_yuan_mwh)):
         raise ValueError("情景电量与费用必须为有限非负数")
     pairs = [r for r in data["points"] if r["visible"] and r["spread_yuan_mwh"] is not None]
@@ -180,10 +180,10 @@ def save_run(store, data, kind, text, output, selected_slot=None, status="comple
     return dict(run_id=run_id, scope=scope, evidence=evidence, status=status)
 
 
-def analyze(store, day, cursor, question, expected_hash):
+def analyze(store, day, cursor, question, expected_hash, *, source_dataset=None):
     if not expected_hash:
         raise ValueError("分析必须绑定数据文件版本")
-    data = series(day, cursor, expected_hash)
+    data = series(day, cursor, expected_hash, source_dataset=source_dataset)
     k = data["summary"]
     def show(value, suffix=""):
         return "无有效配对" if value is None else f"{value:,.2f}{suffix}"
@@ -216,10 +216,10 @@ def analyze(store, day, cursor, question, expected_hash):
     return {**saved, **tools, "answer_markdown": answer, "error": answer if failed else None}
 
 
-def review(store, day, cursor, selected_slot, reason, expected_hash):
+def review(store, day, cursor, selected_slot, reason, expected_hash, *, source_dataset=None):
     if not expected_hash or not reason.strip():
         raise ValueError("复核必须绑定数据版本并填写结论")
-    data = series(day, cursor, expected_hash)
+    data = series(day, cursor, expected_hash, source_dataset=source_dataset)
     if selected_slot is None or not 0 <= selected_slot < cursor or not data["points"][selected_slot]["source_line"]:
         raise ValueError("只能复核已经展示的原始记录")
     record = data["points"][selected_slot]

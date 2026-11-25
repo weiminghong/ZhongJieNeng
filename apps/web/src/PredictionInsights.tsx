@@ -1,13 +1,22 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Printer } from "lucide-react";
 import type { LineSeriesOption } from "echarts";
-import type { Entity, Prediction } from "./LearningLoop";
+import type { Entity, Prediction, Score } from "./LearningLoop";
 import type { Theme } from "./types";
-import { fmt, useResource } from "./api";
+import { fmt, stamp, useResource } from "./api";
 import { Status } from "./components";
 import Chart, { baseOption, color } from "./Chart";
 
+export type Observation = {
+  prediction_id: string;
+  points: Prediction["points"];
+  scores: Score;
+  changed_from_snapshot: number;
+  checked_at: string;
+  observation_source_hash: string;
+};
 type Details = {
+  observation: Entity<Observation> | null;
   notice: string;
   range: null | {
     points: (Prediction["points"][number] & { lower: number; upper: number })[];
@@ -32,23 +41,75 @@ export default function PredictionInsights({
   record,
   theme,
   onPoint,
+  onObservationChange,
 }: {
   record: Entity<Prediction>;
   theme: Theme;
   onPoint: (slot: number) => void;
+  onObservationChange?: (observation: Entity<Observation> | null) => void;
 }) {
   const [confidence, setConfidence] = useState(0.95);
+  const [actualBasis, setActualBasis] = useState(() =>
+    new URLSearchParams(location.search).get("actual_basis") === "snapshot"
+      ? "snapshot"
+      : "latest",
+  );
+  useEffect(() => {
+    const u = new URL(location.href);
+    u.searchParams.set("actual_basis", actualBasis);
+    history.replaceState(null, "", u);
+  }, [actualBasis, record.id]);
   const details = useResource<Details>(
     `/api/v1/research/prediction-details/${record.id}?confidence=${confidence}`,
+    0,
+    10000,
   );
   const d = details.data;
-  const points = record.payload.points;
+  const retainedObservation = useRef<Entity<Observation> | null>(null);
+  if (d) retainedObservation.current = d.observation;
+  const observation =
+    actualBasis === "latest"
+      ? d?.observation ||
+        (retainedObservation.current?.payload.prediction_id === record.id
+          ? retainedObservation.current
+          : null)
+      : null;
+  const points = observation?.payload.points || record.payload.points;
+  const scores = observation?.payload.scores || record.payload.scores;
+  useEffect(() => {
+    onObservationChange?.(observation || null);
+  }, [observation?.id, actualBasis, record.id]);
+  const rangeObserved = points.filter((p) => p.actual !== null);
+  const rangeCoverage =
+    d?.range && rangeObserved.length
+      ? rangeObserved.filter(
+          (p) =>
+            p.actual! >= p.predicted - d.range!.mean_width / 2 &&
+            p.actual! <= p.predicted + d.range!.mean_width / 2,
+        ).length / rangeObserved.length
+      : null;
   const peak = points.reduce((a, b) => (b.predicted > a.predicted ? b : a));
   const contributions = d?.explanation?.items || [];
   const maximum = Math.max(1, ...contributions.map((c) => Math.abs(c.value)));
   return (
     <div className="prediction-insights">
       <div className="research-filters">
+        <label>
+          图表实际值来源
+          <select
+            aria-label="图表实际值来源"
+            value={actualBasis}
+            onChange={(e) => {
+              setActualBasis(e.target.value);
+              onObservationChange?.(
+                e.target.value === "latest" ? d?.observation || null : null,
+              );
+            }}
+          >
+            <option value="latest">最新已核对观测</option>
+            <option value="snapshot">原预测保存快照</option>
+          </select>
+        </label>
         <label>
           历史误差范围
           <select
@@ -63,10 +124,10 @@ export default function PredictionInsights({
         </label>
         <a
           className="button"
-          href={`/api/v1/research/predictions/${record.id}/export`}
+          href={`/api/v1/research/predictions/${record.id}/export${observation ? `?observation_id=${observation.id}` : ""}`}
         >
           <Download size={15} />
-          导出本次CSV
+          导出所选来源CSV
         </a>
         <button onClick={() => window.print()}>
           <Printer size={15} />
@@ -74,6 +135,12 @@ export default function PredictionInsights({
         </button>
       </div>
       <Status loading={details.loading} error={details.error} />
+      <p className="research-help">
+        {observation
+          ? `正在显示 ${stamp(observation.payload.checked_at)} 核对的实际值；观测版本 ${observation.source_hash.slice(0, 16)}，相对原快照 ${observation.payload.changed_from_snapshot} 个实际值变化。`
+          : "正在显示原预测保存的实际值快照；旧记录不被新数据覆盖。"}{" "}
+        预测曲线始终使用原来保存的模型输出。
+      </p>
       <div className="research-metrics">
         <div>
           <span>预测最高价格</span>
@@ -104,12 +171,12 @@ export default function PredictionInsights({
           </p>
         </div>
         <div>
-          <span>本次已观察 MAE</span>
+          <span>{observation ? "最新观测核对 MAE" : "原快照 MAE"}</span>
           <strong>
-            {fmt(record.payload.scores.mae, 2)}
+            {fmt(scores.mae, 2)}
             <small>元/MWh</small>
           </strong>
-          <p>{record.payload.scores.n}/96 条标签 · 快照不随新记录改写</p>
+          <p>{scores.n}/96 条标签 · 与所选观测来源一致</p>
         </div>
       </div>
       <Chart
@@ -126,7 +193,7 @@ export default function PredictionInsights({
               lineStyle: { color: color("primary"), width: 2 },
             },
             {
-              name: "原始实际价格",
+              name: observation ? "最新核对实际价格" : "原快照实际价格",
               type: "line",
               symbol: "none",
               data: points.map((p) => p.actual),
@@ -164,7 +231,7 @@ export default function PredictionInsights({
       />
       <p className="research-help">
         {d?.range
-          ? `经验范围使用截至 ${d.range.calibration_end} 的误差。本次 ${d.range.observed_points} 条已观察标签中，${fmt((d.range.observed_coverage ?? 0) * 100, 1)}% 落在范围内；这不是未来覆盖保证。`
+          ? `经验范围使用截至 ${d.range.calibration_end} 的误差。所选来源的 ${rangeObserved.length} 条实际标签中，${fmt(rangeCoverage === null ? null : rangeCoverage * 100, 1)}% 落在范围内；这不是未来覆盖保证。`
           : d?.range_unavailable}
       </p>
       <div className="research-two-grid">

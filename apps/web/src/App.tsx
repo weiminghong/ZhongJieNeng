@@ -39,6 +39,7 @@ import ContextRail from "./ContextRail";
 import ConnectionStatus from "./ConnectionStatus";
 import PublicWorkspace from "./PublicWorkspace";
 import LearningLoop from "./LearningLoop";
+import DataFlow from "./DataFlow";
 import {
   ResearchOverview,
   ResearchComparison,
@@ -48,6 +49,12 @@ import {
 } from "./ResearchPages";
 
 const tabs = [
+  {
+    id: "flow",
+    title: "数据流",
+    icon: Database,
+    description: "原始版本到预测与实测核对",
+  },
   {
     id: "overview",
     title: "总览",
@@ -129,6 +136,7 @@ const tabs = [
 ] as const;
 type Tab = (typeof tabs)[number]["id"];
 const publicTitles: Record<Tab, string> = {
+  flow: "数据流",
   overview: "总览",
   compare: "评估对比",
   decompose: "时序分解",
@@ -154,6 +162,7 @@ const siteTabs: Tab[] = [
 const publicOrder: Tab[] = [
   "overview",
   "raw",
+  "flow",
   "learning",
   "forecast",
   "compare",
@@ -166,6 +175,7 @@ const publicOrder: Tab[] = [
   "connections",
 ];
 const publicNotes: Record<Tab, string> = {
+  flow: "版本、血缘与实际值核对",
   overview: "数据与核心研究指标",
   raw: "原始行、版本与质量",
   learning: "任务与真实权重版本",
@@ -327,6 +337,13 @@ export default function App() {
     if ((context.ml_model || context.ml_date) && !context.ml_prediction)
       u.searchParams.delete("ml_prediction");
     Object.entries(context).forEach(([k, v]) => u.searchParams.set(k, v));
+    if ((context.ml_model || context.ml_date) && !context.view_source)
+      u.searchParams.delete("view_source");
+    if (context.ml_date) u.searchParams.set("date", context.ml_date);
+    if (context.date) {
+      u.searchParams.set("ml_date", context.date);
+      if (!context.ml_prediction) u.searchParams.delete("ml_prediction");
+    }
     history.replaceState(null, "", u);
     setTab(next as Tab);
     requestAnimationFrame(() =>
@@ -560,7 +577,9 @@ export default function App() {
         </div>
         <div className="energy-scroll">
           {publicActive ? (
-            tab === "overview" ? (
+            tab === "flow" ? (
+              <DataFlow revision={revision} navigate={navigateResearch} />
+            ) : tab === "overview" ? (
               <ResearchOverview
                 theme={theme}
                 revision={revision}

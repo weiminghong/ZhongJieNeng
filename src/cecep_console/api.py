@@ -65,6 +65,7 @@ class PublicScope(BaseModel):
     quantity_mwh: float = Field(default=1, ge=0, le=1000000, allow_inf_nan=False)
     fee_yuan_mwh: float = Field(default=0, ge=0, le=1000000, allow_inf_nan=False)
     persist: bool = False
+    archived: bool = False
 
     @field_validator("date")
     @classmethod
@@ -347,22 +348,31 @@ def create_app():
 
     @app.post("/api/v1/public-data/analyze")
     def public_analysis(scope: PublicScope, store: Store = Depends(get_store)):
-        result = public_data.analyze(store, scope.date, scope.cursor, scope.question, scope.source_hash)
+        result = public_data.analyze(store, scope.date, scope.cursor, scope.question, scope.source_hash, source_dataset=archived_input(scope,store))
         return JSONResponse(result, status_code=502 if result["provider_error"] else 200)
 
     @app.post("/api/v1/public-data/review")
     def public_review(scope: PublicScope, store: Store = Depends(get_store)):
-        return public_data.review(store, scope.date, scope.cursor, scope.selected_slot, scope.reason, scope.source_hash)
+        return public_data.review(store, scope.date, scope.cursor, scope.selected_slot, scope.reason, scope.source_hash, source_dataset=archived_input(scope,store))
 
     @app.post("/api/v1/public-data/scenario")
     def public_scenario(scope: PublicScope, store: Store = Depends(get_store)):
-        result = public_data.scenario(scope.date, scope.cursor, scope.quantity_mwh, scope.fee_yuan_mwh, scope.source_hash)
+        source = archived_input(scope,store)
+        result = public_data.scenario(scope.date, scope.cursor, scope.quantity_mwh, scope.fee_yuan_mwh, scope.source_hash, source_dataset=source)
         if scope.persist:
             if not scope.source_hash:
                 raise ValueError("保存测算必须绑定数据版本")
-            data = public_data.series(scope.date, scope.cursor, scope.source_hash)
+            data = public_data.series(scope.date, scope.cursor, scope.source_hash, source_dataset=source)
             result["saved"] = public_data.save_run(store, data, "scenario", result["basis"], result)
         return result
+
+    def archived_input(scope,store):
+        if not scope.archived:
+            return None
+        if not scope.source_hash:
+            raise ValueError("归档查询必须绑定源版本")
+        from .data_flow import source_version
+        return source_version(store,scope.source_hash)
 
     @app.get("/api/v1/public-data/history")
     def public_history(date: str, source_hash: str, all_versions: bool = False, store: Store = Depends(get_store)):

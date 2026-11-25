@@ -5,6 +5,7 @@ import type { PublicCatalog } from "./publicTypes";
 import { fmt, request, stamp, useResource } from "./api";
 import { Panel, Status } from "./components";
 import PredictionInsights from "./PredictionInsights";
+import type { Observation } from "./PredictionInsights";
 import "./styles/learning.css";
 
 export type Entity<P> = {
@@ -131,6 +132,7 @@ export type Overview = {
   events: Event[];
 };
 type Command = {
+  observation_id?: string;
   action: string;
   object_id?: string;
   source_hash?: string;
@@ -147,6 +149,9 @@ export const names: Record<string, string> = {
   train_weekday_slot_median: "训练集星期 / 时段中位数",
 };
 export const states: Record<string, string> = {
+  archived:"原始版本已归档",
+  matched:"实际值核对完成",
+  frozen:"已冻结",
   queued: "排队",
   claimed: "已领取",
   started: "进程已启动",
@@ -221,10 +226,16 @@ export default function LearningLoop({
     () => new URLSearchParams(location.search).get("ml_model") || "",
   );
   const [day, setDay] = useState(
-    () => new URLSearchParams(location.search).get("ml_date") || "",
+    () =>
+      new URLSearchParams(location.search).get("date") ||
+      new URLSearchParams(location.search).get("ml_date") ||
+      "",
   );
   const [validation, setValidation] = useState(true);
   const [prediction, setPrediction] = useState<Entity<Prediction> | null>(null);
+  const [observation, setObservation] = useState<Entity<Observation> | null>(
+    null,
+  );
   const [storedId, setStoredId] = useState(
     () => new URLSearchParams(location.search).get("ml_prediction") || "",
   );
@@ -285,6 +296,7 @@ export default function LearningLoop({
     const url = new URL(location.href);
     if (modelId) url.searchParams.set("ml_model", modelId);
     if (day) url.searchParams.set("ml_date", day);
+    if (day) url.searchParams.set("date", day);
     history.replaceState(null, "", url);
     setPrediction(null);
     setAnalysis(null);
@@ -360,7 +372,13 @@ export default function LearningLoop({
   );
   const activePrediction =
     prediction || (stored.data?.payload?.points ? stored.data : null);
-  const point = activePrediction?.payload.points[slot];
+  const shownObservation =
+    observation?.payload.prediction_id === activePrediction?.id
+      ? observation
+      : null;
+  const point =
+    shownObservation?.payload.points[slot] ||
+    activePrediction?.payload.points[slot];
   return (
     <div className="learning-workspace" data-focus={focus}>
       <div className="learning-heading">
@@ -380,6 +398,24 @@ export default function LearningLoop({
         <button disabled={!!busy} onClick={() => setRev((v) => v + 1)}>
           <RefreshCw size={16} />
           检查状态
+        </button>
+        <button
+          onClick={() =>
+            onNavigate?.(
+              "flow",
+              activePrediction
+                ? {
+                    ml_prediction: activePrediction.id,
+                    ml_model: activePrediction.payload.model_id,
+                    ml_date: activePrediction.payload.date,
+                  }
+                : modelId
+                  ? { ml_model: modelId }
+                  : {},
+            )
+          }
+        >
+          查看这条数据链
         </button>
       </div>
       <p className="learning-boundary">
@@ -829,6 +865,8 @@ export default function LearningLoop({
                             const result = await act<Entity<Prediction>>(
                               {
                                 action: "predict",
+                                source_hash:
+                                  catalog.data?.metadata?.source_hash,
                                 object_id: modelId,
                                 date: day,
                                 validation_only: validation,
@@ -1037,6 +1075,13 @@ export default function LearningLoop({
                   />
                   {activePrediction && (
                     <div className="learning-prediction">
+                      {(activePrediction.payload.model_id !== modelId ||
+                        activePrediction.payload.date !== day) && (
+                        <p className="research-help">
+                          下方仍为 {activePrediction.payload.date}{" "}
+                          的已保存记录。当前表单范围尚未运行，不将旧图表当作新结果。
+                        </p>
+                      )}
                       <h3>
                         {activePrediction.payload.date} ·{" "}
                         {activePrediction.payload.validation_only
@@ -1047,12 +1092,14 @@ export default function LearningLoop({
                         逻辑预测截止{" "}
                         {stamp(activePrediction.payload.logical_cutoff)} ·
                         特征最晚 {activePrediction.payload.latest_feature_day} ·
-                        MAE {fmt(activePrediction.payload.scores.mae, 3)} 元/MWh
+                        原快照 MAE {fmt(activePrediction.payload.scores.mae, 3)}{" "}
+                        元/MWh
                       </p>
                       <PredictionInsights
                         record={activePrediction}
                         theme={theme}
                         onPoint={setSlot}
+                        onObservationChange={setObservation}
                       />
                       <label>
                         复核时段
@@ -1078,6 +1125,9 @@ export default function LearningLoop({
                           const r = await act<Entity<Feedback>>(
                             {
                               action: "feedback",
+                              ...(shownObservation
+                                ? { observation_id: shownObservation.id }
+                                : {}),
                               object_id: activePrediction.id,
                               slot,
                             },
@@ -1105,8 +1155,13 @@ export default function LearningLoop({
                         onClick={() =>
                           onNavigate?.("raw", {
                             date: activePrediction.payload.date,
+                            ml_prediction: activePrediction.id,
+                            ml_model: activePrediction.payload.model_id,
                             cursor: "96",
                             slot: String(slot),
+                            view_source:
+                              shownObservation?.source_hash ||
+                              activePrediction.source_hash,
                           })
                         }
                       >

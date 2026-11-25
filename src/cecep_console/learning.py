@@ -144,19 +144,25 @@ def register_dataset(store, source_hash):
     meta, dates, _ = public_data.dataset()
     if meta["source_hash"] != source_hash:
         raise ValueError("数据版本变化，重新核对源文件")
+    from .data_flow import archive_current
+    source_revision = archive_current(store, source_hash)
     contract = dict(policy=POLICY, splits=splits(), source_hash=source_hash, source_rows=meta["row_count"],
                     source_commit=meta["source_commit"], source_file=meta["source_file"],
                     date_start=dates[0], date_end=dates[-1], fixture=os.environ.get("CECEP_ML_TEST_FIXTURE") == "1")
     oid = "dataset_" + digest(contract)[:24]
     if not store.db.execute("SELECT 1 FROM ml_object WHERE object_id=?", (oid,)).fetchone():
-        add_object(store, "dataset", contract, source_hash, object_id=oid)
+        add_object(store, "dataset", contract, source_hash, parent=source_revision["id"], object_id=oid)
         event(store, oid, "registered", note="冻结源文件和划分；行清单由训练准备阶段生成")
         store.db.commit()
     return get_object(store, oid)
 
 
-def build_arrays(ds):
-    meta, dates, days = public_data.dataset()
+def build_arrays(ds, store=None):
+    if store is None:
+        meta, dates, days = public_data.dataset()
+    else:
+        from .data_flow import source_version
+        meta, dates, days = source_version(store, ds["source_hash"])
     if meta["source_hash"] != ds["source_hash"]:
         raise ValueError("源文件已变更，旧数据集禁止训练；请登记新版本")
     result, manifest = {}, []
@@ -303,7 +309,7 @@ def execute(store, jid):
             raise ValueError("训练已请求取消")
         event(store, jid, name, **info); store.db.commit()
     stage("preparing", stage="验证源文件与完整样本清单")
-    arrays, manifest = build_arrays(ds)
+    arrays, manifest = build_arrays(ds, store)
     manifest_ref = atomic(f"jobs/{jid}/rows.jsonl", ("\n".join(encoded(r) for r in manifest)+"\n").encode())
     data_ref = write_npz(f"jobs/{jid}/data.npz", **{f"{p}_{k}": v for p, data in arrays.items() for k, v in data.items()})
     counts = {p: dict(included=len(data["y"]), excluded=sum(r["split"] == p and not r["included"] for r in manifest),
@@ -399,15 +405,22 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
     return get_object(store, oid)
 
 
-def feedback(store, prediction_id, slot, actor, reason):
+def feedback(store, prediction_id, slot, actor, reason, observation_id=None):
     pred = get_object(store, prediction_id, "prediction")
     if not 0 <= slot <= 95:
         raise ValueError("时段越界")
     point = pred["payload"]["points"][slot]
+    observation = get_object(store, observation_id, "observation_match") if observation_id else None
+    if observation and observation["parent_id"] != prediction_id:
+        raise ValueError("实际值核对记录不属于该预测")
+    if observation:
+        point = observation["payload"]["points"][slot]
     payload = dict(prediction_id=prediction_id, model_id=pred["payload"]["model_id"], date=pred["payload"]["date"],
                    slot=slot, point=point, actor=actor, reason=reason, actor_verification="intranet_declared",
+                   observation_id=observation_id, input_source_hash=pred["source_hash"],
+                   observation_source_hash=observation["source_hash"] if observation else pred["source_hash"],
                    training_eligible=False, note="人工意见不改写原始价格，不自动增加训练标签")
-    oid = add_object(store, "feedback", payload, pred["source_hash"], prediction_id)
+    oid = add_object(store, "feedback", payload, observation["source_hash"] if observation else pred["source_hash"], prediction_id)
     event(store, oid, "submitted", actor=actor, reason=reason); store.db.commit()
     return get_object(store, oid)
 
@@ -532,14 +545,22 @@ def final_audit(store, oid, actor, reason):
     if job(store, p["job_id"])["state"] != "succeeded":
         raise ValueError("所属任务尚无成功退出记录，不能启封最终审计")
     seal = "final:"+m["source_hash"]
+    window_seal = "final_window:"+p["task"]+":"+digest(p["splits"]["final_audit"])
     store.db.execute("BEGIN IMMEDIATE")
     try:
+        if state(store,window_seal)["state"]!="registered":
+            raise ValueError("同一最终审计窗口已经启封；源文件变更不能重置独立检验资格")
+        for audit in objects(store,"audit",10000):
+            previous_model=get_object(store,audit["payload"]["model_id"],"model")
+            if previous_model["payload"]["task"]==p["task"] and previous_model["payload"]["splits"]["final_audit"]==p["splits"]["final_audit"]:
+                raise ValueError("同一最终审计窗口已经使用；更换源文件版本不能重新声称独立检验，需新的未来评估合同")
         if state(store, seal)["state"] != "registered":
             raise ValueError("此源版本最终审计已开启，不允许换候选或重复独立检验")
         if p["algorithm"] != "ridge" or m["state"] not in {"evaluated", "shadow", "research_active", "retired"}:
             raise ValueError("只能冻结已评估的训练候选")
         # Commit the seal BEFORE reading labels. Failed audit remains consumed.
         event(store, seal, "frozen", model_id=oid, weights_hash=p["weights"]["sha256"], actor=actor, reason=reason)
+        event(store, window_seal, "frozen", model_id=oid, source_hash=m["source_hash"], actor=actor, reason=reason)
         store.db.commit()
         arrays = read_npz(p["arrays"])
         data = {"final_audit": {k: arrays["final_audit_"+k] for k in ("x", "y", "days", "slots")}}
@@ -549,7 +570,8 @@ def final_audit(store, oid, actor, reason):
                                    y=native["y"], days=native["days"], slots=native["slots"])
         result = add_object(store, "audit", dict(model_id=oid, report=report, predictions=prediction_ref, actor=actor, reason=reason,
                             interpretation="一次性最终检验；之后调参不得再称此窗口为独立测试"), m["source_hash"], oid)
-        event(store, seal, "consumed", model_id=oid, audit_id=result); store.db.commit()
+        event(store, seal, "consumed", model_id=oid, audit_id=result)
+        event(store, window_seal, "consumed", model_id=oid, audit_id=result); store.db.commit()
         return get_object(store, result)
     except Exception:
         store.db.rollback(); raise
@@ -569,9 +591,12 @@ def monitor_source(store):
     """Observe only the configured source; changes trigger quality and safe inference."""
     try:
         meta, dates, days = public_data.dataset()
+        from .data_flow import archive_current, reconcile
+        revision = archive_current(store, meta["source_hash"])
+        matched_count = reconcile(store, meta["source_hash"])
         previous = state(store, "monitor")["detail"].get("source_hash")
         detail = dict(source_hash=meta["source_hash"], date_end=dates[-1], source_rows=meta["row_count"],
-                      changed=previous != meta["source_hash"], checked_at=now())
+                      changed=previous != meta["source_hash"], checked_at=now(), source_revision_id=revision["id"], observation_matches_added=matched_count)
         if previous != meta["source_hash"]:
             latest = days[dates[-1]]
             missing = sum(p["rt_price"] is None for p in latest.values())+96-len(latest)

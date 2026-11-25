@@ -449,6 +449,13 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
             if insights["explanation"]:
                 assert insights["explanation"]["reconstruction_verified"] is True
             receipt["research_views"]["prediction_id"] = prediction_id
+            flow = api("/api/v1/research/flow?prediction_id="+prediction_id)
+            assert flow["archive"]["source_hash"] == research["active_model"]["source_hash"]
+            assert flow["observation"]["payload"]["prediction_id"] == prediction_id
+            assert flow["observation"]["payload"]["input_source_hash"] == flow["prediction"]["source_hash"]
+            archived = api("/api/v1/research/source-series?source_hash="+flow["prediction"]["source_hash"]+"&trading_date="+flow["prediction"]["payload"]["date"]+"&cursor=96")
+            assert len(archived["points"]) == 96
+            receipt["data_flow"] = {"source_revision_id": flow["archive"]["id"], "observation_id": flow["observation"]["id"], "source_versions": len(flow["versions"]), "input_sha256": flow["prediction"]["source_hash"]}
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]

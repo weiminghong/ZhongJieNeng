@@ -15,10 +15,30 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from . import learning as ml, public_data
+from . import data_flow
 from .learning_api import store_dep
 from .storage import Store
 
 router = APIRouter(prefix="/api/v1/research", tags=["research-workbench-views"])
+
+
+@router.get("/flow")
+def flow(model_id: str | None = None, prediction_id: str | None = None, store: Store = Depends(store_dep)):
+    return data_flow.flow(store, model_id, prediction_id)
+
+
+@router.get("/source-catalog")
+def source_catalog(source_hash: str, store: Store = Depends(store_dep)):
+    meta, dates, _ = data_flow.source_version(store, source_hash)
+    metadata = dict(meta, archived_version=meta.get("archived_version",False))
+    return dict(available=True, checked_at=ml.now(), metadata=metadata, dates=dates, default_date=dates[-1])
+
+
+@router.get("/source-series")
+def source_series(source_hash: str, trading_date: date, cursor: int = Query(default=96, ge=0, le=96), store: Store = Depends(store_dep)):
+    meta, dates, days = data_flow.source_version(store, source_hash)
+    metadata = dict(meta, archived_version=meta.get("archived_version",False))
+    return public_data.series(trading_date.isoformat(), cursor, source_hash, source_dataset=(metadata, dates, days))
 
 
 def current(expected=None):
@@ -205,6 +225,8 @@ def prediction_details(oid: str, confidence: float = Query(default=.95), store: 
     result = dict(prediction_id=oid, view_protocol="research-display-v1", unit=p["unit"], confidence=confidence,
                   range=None, explanation=None, source_hash=record["source_hash"], weights_hash=p["weights_hash"],
                   notice="点预测不变。经验范围来自既有调参误差，不是独立校准区间或概率保证；解释项不代表因果。")
+    observation = data_flow.latest_observation(store, oid)
+    result["observation"] = observation
     if p["date"] > (date.fromisoformat(m["selection_end"])+timedelta(days=1)).isoformat() and not p["validation_only"]:
         native = ml.read_npz(m["evaluation_predictions"])
         error = abs(native["tune_"+m["algorithm"]]-native["tune_y"])
@@ -216,8 +238,12 @@ def prediction_details(oid: str, confidence: float = Query(default=.95), store: 
                               calibration_artifact=m["evaluation_predictions"]["sha256"], calibration_end=m["selection_end"])
     else:
         result["range_unavailable"] = "当前记录属于调参验证，不能用同窗标签为自己回算误差范围。"
-    meta, _, days = public_data.dataset()
-    if m["algorithm"] == "ridge" and meta["source_hash"] == record["source_hash"]:
+    source_error = None
+    try:
+        meta, _, days = data_flow.source_version(store, record["source_hash"])
+    except ValueError as exc:
+        meta, days, source_error = None, None, str(exc)
+    if m["algorithm"] == "ridge" and days is not None:
         x = np.array([ml.features_for(days, p["date"], s) for s in range(96)], dtype=float)
         if hashlib.sha256(x.tobytes()).hexdigest() != p["feature_value_hash"]:
             raise ValueError("输入特征校验不符，不能展示该记录的模型解释")
@@ -232,7 +258,7 @@ def prediction_details(oid: str, confidence: float = Query(default=.95), store: 
         result["explanation"] = dict(items=items, prediction_mean=predicted_mean, reconstruction_verified=True,
                                      method="标准化线性项及缺失指示项的日均贡献；含截距后重构日均预测")
     else:
-        result["explanation_unavailable"] = "该基线没有Ridge线性项，或原输入版本已变化；保留预测快照，不制造解释。"
+        result["explanation_unavailable"] = source_error or "该基线没有Ridge线性项；保留预测快照，不制造解释。"
     return result
 
 
@@ -244,9 +270,14 @@ def csv_response(name, columns, rows):
 
 
 @router.get("/predictions/{oid}/export")
-def export_prediction(oid: str, store: Store = Depends(store_dep)):
+def export_prediction(oid: str, observation_id: str | None = None, store: Store = Depends(store_dep)):
     r = ml.get_object(store, oid, "prediction"); p = r["payload"]
+    observation = ml.get_object(store, observation_id, "observation_match") if observation_id else None
+    if observation and observation["parent_id"] != oid:
+        raise ValueError("实际值核对记录不属于所选预测")
+    selected = observation["payload"]["points"] if observation else p["points"]
     rows = [dict(date=p["date"], slot=x["slot"], interval_start=f"{p['date']}T{x['slot']//4:02d}:{x['slot']%4*15:02d}:00+08:00",
                  predicted=x["predicted"], actual=x["actual"], source_line=x["source_line"], model_id=p["model_id"],
-                 source_hash=r["source_hash"], weights_hash=p["weights_hash"], unit=p["unit"], time_policy=p["time_policy"]) for x in p["points"]]
+                 source_hash=r["source_hash"], observation_source_hash=observation["source_hash"] if observation else r["source_hash"],
+                 weights_hash=p["weights_hash"], unit=p["unit"], time_policy=p["time_policy"]) for x in selected]
     return csv_response("price-prediction-"+p["date"], list(rows[0]), rows)

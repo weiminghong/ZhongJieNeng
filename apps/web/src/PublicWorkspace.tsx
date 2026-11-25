@@ -56,13 +56,21 @@ export default function PublicWorkspace({
   revision: number;
 }) {
   const [autoCheck, setAutoCheck] = useState(true);
+  const [viewSource, setViewSource] = useState(
+    () => new URLSearchParams(location.search).get("view_source") || "",
+  );
   const catalog = useResource<PublicCatalog>(
-    "/api/v1/public-data/catalog",
+    viewSource
+      ? `/api/v1/research/source-catalog?source_hash=${encodeURIComponent(viewSource)}`
+      : "/api/v1/public-data/catalog",
     revision,
     autoCheck ? 30000 : 0,
   );
   const [day, setDay] = useState(
-    () => new URLSearchParams(location.search).get("date") || "",
+    () =>
+      new URLSearchParams(location.search).get("date") ||
+      new URLSearchParams(location.search).get("ml_date") ||
+      "",
   );
   const [cursor, setCursor] = useState(() => {
     const raw = new URLSearchParams(location.search).get("cursor");
@@ -103,7 +111,9 @@ export default function PublicWorkspace({
   current.current = scopeKey;
   const data = useResource<PublicSeries>(
     valid && meta
-      ? `/api/v1/public-data/series?date=${day}&cursor=${cursor}&source_hash=${meta.source_hash}`
+      ? viewSource
+        ? `/api/v1/research/source-series?trading_date=${day}&cursor=${cursor}&source_hash=${meta.source_hash}`
+        : `/api/v1/public-data/series?date=${day}&cursor=${cursor}&source_hash=${meta.source_hash}`
       : null,
     `${revision}:${meta?.source_hash}`,
   );
@@ -152,7 +162,12 @@ export default function PublicWorkspace({
   const selected = points[selectedSlot];
   const ready = !!data.data && !data.error && !data.loading;
   const showData = !!series && !data.error;
-  const payload = { date: day, cursor, source_hash: meta?.source_hash };
+  const payload = {
+    date: day,
+    cursor,
+    source_hash: meta?.source_hash,
+    archived: !!viewSource,
+  };
 
   useEffect(() => {
     if (catalog.data?.available && !catalog.data.dates.includes(day))
@@ -161,7 +176,16 @@ export default function PublicWorkspace({
   useEffect(() => {
     if (!valid) return;
     const url = new URL(location.href);
+    if (
+      url.searchParams.get("ml_date") &&
+      url.searchParams.get("ml_date") !== day
+    ) {
+      url.searchParams.delete("ml_prediction");
+      url.searchParams.delete("ml_feedback");
+      url.searchParams.delete("ml_proposal");
+    }
     url.searchParams.set("date", day);
+    url.searchParams.set("ml_date", day);
     url.searchParams.set("cursor", String(cursor));
     if (follow) url.searchParams.delete("slot");
     else url.searchParams.set("slot", String(slot));
@@ -483,6 +507,25 @@ export default function PublicWorkspace({
 
   return (
     <div className="public-workspace">
+      {viewSource && (
+        <div className="research-context">
+          <Database size={20} />
+          <div>
+            <strong>正在按输入版本查看原始数据</strong>
+            <span>{viewSource.slice(0, 16)} · 图表和原始行均绑定此版本</span>
+          </div>
+          <button
+            onClick={() => {
+              setViewSource("");
+              const u = new URL(location.href);
+              u.searchParams.delete("view_source");
+              window.history.replaceState(null, "", u);
+            }}
+          >
+            切回当前源文件
+          </button>
+        </div>
+      )}
       <Status loading={catalog.loading} error={catalog.error} />
       {catalog.data && !catalog.data.available && (
         <section className="connection-empty">
