@@ -437,6 +437,9 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert quality["metadata"]["source_hash"] == research["catalog"]["metadata"]["source_hash"]
         assert quality["metadata"]["row_count"] == 71520
         receipt["research_views"] = {"source_rows": quality["metadata"]["row_count"], "prediction_records": history["total"], "readonly_views": True}
+        schema = api("/api/v1/research/schema")
+        assert schema["version"] == 6 and len(schema["tables"]) == 8 and not schema["foreign_key_errors"]
+        receipt["typed_registry"] = {t["name"]:t["rows"] for t in schema["tables"]}
         if research["active_model"]:
             reference_id = research["active_model"]["id"]
             comparison = api("/api/v1/research/comparison?model_id="+reference_id+"&partition=promotion")
@@ -459,7 +462,7 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
-            and receipt["db_after"]["schema_version"] == 5
+            and receipt["db_after"]["schema_version"] == 6
         )
         receipt["db_write_verification"] = json.loads(
             python(

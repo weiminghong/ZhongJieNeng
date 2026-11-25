@@ -77,6 +77,18 @@ export default function DataFlow({
     5000,
   );
   const f = resource.data;
+  const schema = useResource<{
+    version: number;
+    tables: {
+      name: string;
+      role: string;
+      rows: number;
+      foreign_keys: { from: string; table: string; to: string }[];
+      columns: { name: string; type: string }[];
+    }[];
+    foreign_key_errors: unknown[];
+    storage_policy: string;
+  }>("/api/v1/research/schema", `${revision}:${rev}`);
   const context: Record<string, string> = f?.prediction
     ? {
         ml_prediction: f.prediction.id,
@@ -180,6 +192,9 @@ export default function DataFlow({
                     onClick={() =>
                       navigate(s.tab, {
                         ...context,
+                        ...(s.tab === "raw" && f.archive
+                          ? { view_source: f.archive.source_hash }
+                          : {}),
                         ...(s.tab === "monitor" && f.job
                           ? { job: f.job.id }
                           : {}),
@@ -356,6 +371,64 @@ export default function DataFlow({
           </Panel>
         </>
       )}
+      <Panel
+        title="数据库表与关联"
+        subtitle="直接读取数据库当前结构和行数。每条记录通过外键指向所属版本，不仅在界面上连线。"
+      >
+        <Status loading={schema.loading} error={schema.error} />
+        {schema.data && (
+          <>
+            <p className="research-help">
+              库版本 {schema.data.version} · 外键检查{" "}
+              {schema.data.foreign_key_errors.length === 0
+                ? "通过"
+                : "存在异常"}
+              。{schema.data.storage_policy}
+            </p>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>业务内容</th>
+                    <th>实际表名</th>
+                    <th>记录数</th>
+                    <th>关系与字段</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schema.data.tables.map((t) => (
+                    <tr key={t.name}>
+                      <td>{t.role}</td>
+                      <td>
+                        <code>{t.name}</code>
+                      </td>
+                      <td>{t.rows}</td>
+                      <td>
+                        <details>
+                          <summary>
+                            {t.foreign_keys.length} 个外键 · {t.columns.length}{" "}
+                            个字段
+                          </summary>
+                          {t.foreign_keys.map((fk, i) => (
+                            <p key={i}>
+                              {fk.from} → {fk.table}.{fk.to}
+                            </p>
+                          ))}
+                          <p>
+                            {t.columns
+                              .map((c) => `${c.name} (${c.type})`)
+                              .join(" · ")}
+                          </p>
+                        </details>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
     </div>
   );
 }

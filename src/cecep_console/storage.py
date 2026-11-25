@@ -20,6 +20,7 @@ TASKS = (
     "intraday_spread",
 )
 DEFAULT_DB = BASE.parents[1] / "runtime/data/cecep.sqlite3"
+REGISTRY_TABLES = {"ml_source_registry","ml_dataset_registry","ml_model_registry","ml_prediction_registry","ml_observation_registry","ml_feedback_registry","ml_retrain_registry","ml_audit_registry"}
 UPPER_TABLES = {
     "training_dataset_version",
     "drift_check_run",
@@ -623,7 +624,7 @@ class Store:
             "tables": {
                 t: self.db.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
                 for t in list(CATALOG)
-                + sorted(UPPER_TABLES - set(CATALOG))
+                + sorted((UPPER_TABLES | REGISTRY_TABLES) - set(CATALOG))
                 + [
                     "serving_interval_wide",
                     "serving_daily_kpi",

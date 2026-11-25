@@ -17,7 +17,7 @@ from fastapi.responses import Response
 from . import learning as ml, public_data
 from . import data_flow
 from .learning_api import store_dep
-from .storage import Store
+from .storage import Store, REGISTRY_TABLES
 
 router = APIRouter(prefix="/api/v1/research", tags=["research-workbench-views"])
 
@@ -25,6 +25,20 @@ router = APIRouter(prefix="/api/v1/research", tags=["research-workbench-views"])
 @router.get("/flow")
 def flow(model_id: str | None = None, prediction_id: str | None = None, store: Store = Depends(store_dep)):
     return data_flow.flow(store, model_id, prediction_id)
+
+
+@router.get("/schema")
+def schema(store: Store = Depends(store_dep)):
+    roles={"ml_source_registry":"原始数据版本","ml_dataset_registry":"冻结训练数据集","ml_model_registry":"模型与权重版本","ml_prediction_registry":"预测记录与输入版本","ml_observation_registry":"后续观测核对","ml_feedback_registry":"人工反馈","ml_retrain_registry":"重训提案","ml_audit_registry":"最终审计"}
+    tables=[]
+    for name in sorted(REGISTRY_TABLES):
+        tables.append(dict(name=name,role=roles[name],rows=store.db.execute(f"SELECT count(*) FROM {name}").fetchone()[0],
+                           columns=[dict(r) for r in store.db.execute(f"PRAGMA table_info({name})")],
+                           foreign_keys=[dict(r) for r in store.db.execute(f"PRAGMA foreign_key_list({name})")],
+                           indexes=[dict(r) for r in store.db.execute(f"PRAGMA index_list({name})")]))
+    return dict(version=store.db.execute("SELECT max(version) FROM schema_migration").fetchone()[0],tables=tables,
+                foreign_key_errors=[tuple(r) for r in store.db.execute("PRAGMA foreign_key_check")],
+                storage_policy="结构化关联表由不可变记录自动生成；外键检查归属，JSON保留完整证据，大文件与权重按哈希留在服务器。")
 
 
 @router.get("/source-catalog")
@@ -79,16 +93,16 @@ def event_history(store, limit=40):
 
 
 def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0):
-    clauses = ["kind='prediction'"]
+    clauses = ["1=1"]
     params = []
     if model_id:
-        clauses.append("json_extract(payload_json,'$.model_id')=?"); params.append(model_id)
+        clauses.append("d.model_version_id=?"); params.append(model_id)
     if trading_date:
-        clauses.append("json_extract(payload_json,'$.date')=?"); params.append(trading_date)
+        clauses.append("d.trading_date=?"); params.append(trading_date)
     params.append(limit)
     params.append(offset)
     result = []
-    for r in store.db.execute("SELECT object_id,source_hash,payload_json,created_at FROM ml_object WHERE "+" AND ".join(clauses)+" ORDER BY rowid DESC LIMIT ? OFFSET ?", params):
+    for r in store.db.execute("SELECT o.object_id,o.source_hash,o.payload_json,o.created_at FROM ml_prediction_registry d JOIN ml_object o ON o.object_id=d.prediction_id WHERE "+" AND ".join(clauses)+" ORDER BY o.rowid DESC LIMIT ? OFFSET ?", params):
         p = json.loads(r[2])
         result.append(dict(id=r[0], source_hash=r[1], created_at=r[3], model_id=p["model_id"], date=p["date"],
                            scores=p["scores"], validation_only=p["validation_only"], logical_cutoff=p["logical_cutoff"], count=len(p["points"])))
@@ -99,7 +113,7 @@ def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0)
 def predictions(model_id: str | None = None, trading_date: date | None = None,
                 limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0, le=1000000), store: Store = Depends(store_dep)):
     day = trading_date.isoformat() if trading_date else None
-    total = store.db.execute("SELECT count(*) FROM ml_object WHERE kind='prediction' AND (? IS NULL OR json_extract(payload_json,'$.model_id')=?) AND (? IS NULL OR json_extract(payload_json,'$.date')=?)", (model_id,model_id,day,day)).fetchone()[0]
+    total = store.db.execute("SELECT count(*) FROM ml_prediction_registry WHERE (? IS NULL OR model_version_id=?) AND (? IS NULL OR trading_date=?)", (model_id,model_id,day,day)).fetchone()[0]
     return dict(records=prediction_list(store, model_id, day, limit, offset), total=total, offset=offset, limit=limit)
 
 
@@ -111,11 +125,11 @@ def summary(store: Store = Depends(store_dep)):
     model = ml.get_object(store, active_id, "model") if active_id else None
     recent = prediction_list(store, active_id, limit=1) if active_id else []
     latest = ml.get_object(store, recent[0]["id"], "prediction") if recent else None
-    model_count = store.db.execute("SELECT count(*) FROM ml_object WHERE kind='model'").fetchone()[0]
+    model_count = store.db.execute("SELECT count(*) FROM ml_model_registry").fetchone()[0]
     jobs = [ml.job(store, r[0]) for r in store.db.execute("SELECT job_id FROM ml_job ORDER BY rowid DESC LIMIT 50")]
     return dict(catalog=catalog, checked_at=ml.now(), active_model=model, latest_prediction=latest,
                 model_count=model_count, jobs=jobs, worker=ml.state(store, "worker"), monitor=ml.state(store, "monitor"),
-                events=event_history(store), prediction_count=store.db.execute("SELECT count(*) FROM ml_object WHERE kind='prediction'").fetchone()[0],
+                events=event_history(store), prediction_count=store.db.execute("SELECT count(*) FROM ml_prediction_registry").fetchone()[0],
                 production_eligible=False, time_policy="historical_assumed")
 
 

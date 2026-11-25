@@ -149,9 +149,9 @@ export const names: Record<string, string> = {
   train_weekday_slot_median: "训练集星期 / 时段中位数",
 };
 export const states: Record<string, string> = {
-  archived:"原始版本已归档",
-  matched:"实际值核对完成",
-  frozen:"已冻结",
+  archived: "原始版本已归档",
+  matched: "实际值核对完成",
+  frozen: "已冻结",
   queued: "排队",
   claimed: "已领取",
   started: "进程已启动",
@@ -686,6 +686,13 @@ export default function LearningLoop({
               title="模型版本"
               subtitle="训练任务成功、权重可加载和通过研究审批分别展示。点击版本继续预测或同口径评估。"
             >
+              {model && dataset && model.payload.dataset_id !== dataset.id && (
+                <p className="research-help">
+                  当前查看的模型属于冻结数据集 {model.payload.dataset_id}
+                  ；新建训练将使用当前源版本 {dataset.id}
+                  。复现旧数据请使用原任务的独立重试，旧输入不会换成新文件。
+                </p>
+              )}
               <label className="research-model-search">
                 搜索模型版本
                 <input

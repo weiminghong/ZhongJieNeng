@@ -385,6 +385,8 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
         raise ValueError("源文件版本不匹配；新输入须显式绑定新源哈希，不能混入旧模型评估")
     if day not in days:
         raise ValueError("所选交易日不在已有公开数据中")
+    from .data_flow import archive_current
+    archive_current(store,meta["source_hash"])
     a = validate_model(read_npz(p["weights"]))
     x = np.array([features_for(days, day, s) for s in range(96)], dtype=float)
     data = dict(x=x, days=np.array([day]*96), slots=np.arange(96))

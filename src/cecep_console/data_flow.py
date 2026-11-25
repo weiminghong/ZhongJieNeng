@@ -110,7 +110,7 @@ def reconcile(store, source_hash):
 
 
 def latest_observation(store, prediction_id):
-    row = store.db.execute("SELECT object_id FROM ml_object WHERE kind='observation_match' AND parent_id=? ORDER BY rowid DESC LIMIT 1", (prediction_id,)).fetchone()
+    row = store.db.execute("SELECT observation_id FROM ml_observation_registry WHERE prediction_id=? ORDER BY rowid DESC LIMIT 1", (prediction_id,)).fetchone()
     return ml.get_object(store, row[0], "observation_match") if row else None
 
 
