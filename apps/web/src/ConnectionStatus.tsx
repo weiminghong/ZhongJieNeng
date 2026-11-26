@@ -1,3 +1,4 @@
+import { businessText, adapterLabel } from "./presentation";
 import { Cable, ArrowUpRight } from "lucide-react";
 import type { Readiness } from "./types";
 import { Panel, Status } from "./components";
@@ -79,14 +80,14 @@ export default function ConnectionStatus({
                   </span>
                   <div>
                     <h3>{c.label}</h3>
-                    <p>{c.note}</p>
+                    <p>{businessText(c.note)}</p>
                   </div>
                 </div>
               ))}
             </div>
           </Panel>
           <Panel
-            title="当前推理适配器"
+            title="已接入的预测能力"
             subtitle="就绪表示协议或本地依赖可用；HTTP 服务在实际请求时验证，不等于预测精度已验收。"
           >
             <div className="table-wrap">
@@ -94,7 +95,7 @@ export default function ConnectionStatus({
                 <thead>
                   <tr>
                     <th>模型版本</th>
-                    <th>适配器</th>
+                    <th>预测方式</th>
                     <th>可执行状态</th>
                     <th>说明</th>
                   </tr>
@@ -105,16 +106,16 @@ export default function ConnectionStatus({
                       <td>
                         {m.model_name} v{m.version}
                       </td>
-                      <td>{m.adapter_type}</td>
+                      <td>{adapterLabel(m.adapter_type)}</td>
                       <td>{m.ready ? "适配器就绪" : "不可执行"}</td>
-                      <td>{m.readiness_note}</td>
+                      <td>{businessText(m.readiness_note)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </Panel>
-          <p className="connection-limits">{data.notice}</p>
+          <p className="connection-limits">{businessText(data.notice)}</p>
         </>
       )}
     </div>

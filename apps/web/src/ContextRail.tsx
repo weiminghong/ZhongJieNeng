@@ -1,3 +1,4 @@
+import { businessText, analysisLabel } from "./presentation";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
@@ -275,25 +276,17 @@ export default function ContextRail({
         )}
         {answer && (
           <div className="rail-answer" aria-live="polite">
-            <p>{answer.answer_markdown}</p>
+            <p>{businessText(answer.answer_markdown)}</p>
             <small>
               {answer.citations.length} 条引用 · {answer.tool_calls.length}{" "}
-              次工具调用 · {answer.llm_mode}
+              次工具调用 · {analysisLabel(answer.llm_mode)}
             </small>
-            <details>
-              <summary>查看工具与证据</summary>
-              <pre>
-                {JSON.stringify(
-                  {
-                    citations: answer.citations,
-                    tool_calls: answer.tool_calls,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </details>
-            <button onClick={() => onDraft(answer.answer_markdown)}>
+            <p className="research-help">
+              分析依据已与当前时段一同保存，可回到原始数据继续核对。
+            </p>
+            <button
+              onClick={() => onDraft(businessText(answer.answer_markdown))}
+            >
               转为人工复核草稿
             </button>
           </div>

@@ -23,6 +23,7 @@ import type {
 import type { PublicCatalog, PublicMetadata } from "./publicTypes";
 import type { Theme } from "./types";
 import "./styles/research.css";
+import { recordLabel, businessText, stateLabel } from "./presentation";
 
 export type NavigateResearch = (
   tab: string,
@@ -81,7 +82,6 @@ type Comparison = {
   label_coverage: number;
   notice: string;
 };
-const short = (s?: string) => (s ? s.slice(0, 14) : "—");
 const clock = (s: number) =>
   `${String(Math.floor(s / 4)).padStart(2, "0")}:${String((s % 4) * 15).padStart(2, "0")}`;
 const fresh = (worker?: Overview["worker"]) =>
@@ -149,12 +149,12 @@ function EventList({
             <Activity size={16} />
             <span>
               <strong>
-                {eventName[e.state] || states[e.state] || e.state}
+                {eventName[e.state] || states[e.state] || stateLabel(e.state)}
               </strong>
               <small>
-                {short(e.subject_id)}
+                {e.display_name || "业务操作"}
                 {typeof e.detail.reason === "string"
-                  ? ` · ${e.detail.reason}`
+                  ? ` · ${businessText(e.detail.reason)}`
                   : ""}
               </small>
             </span>
@@ -248,7 +248,7 @@ export function ResearchOverview({
               </p>
             </div>
             <div>
-              <span>最近查看日 · 预测均价</span>
+              <span>最近预测日 · 预测均价</span>
               <strong>
                 {prediction
                   ? fmt(
@@ -375,7 +375,7 @@ export function ResearchOverview({
                     tab: "learning",
                     name: "训练与模型",
                     detail: model
-                      ? `${names[model.payload.algorithm]} · ${short(model.id)}`
+                      ? recordLabel(model, "当前模型")
                       : "创建真实训练任务",
                   },
                   {
@@ -424,7 +424,7 @@ export function ResearchOverview({
                     <BrainCircuit size={28} />
                     <div>
                       <strong>{names[model.payload.algorithm]}</strong>
-                      <p>{short(model.id)} · 真实权重已校验</p>
+                      <p>{recordLabel(model, "研究模型")} · 真实权重已校验</p>
                     </div>
                     <span className="badge success">研究使用</span>
                   </div>
@@ -447,7 +447,7 @@ export function ResearchOverview({
                     </div>
                     <div>
                       <dt>数据版本</dt>
-                      <dd>{short(model.payload.dataset_id)}</dd>
+                      <dd>项目既有历史数据</dd>
                     </div>
                   </dl>
                   <button
@@ -533,19 +533,17 @@ export function ResearchDataSummary({
               不完整交易日 <strong>{q.incomplete_days}</strong>
             </span>
             <span>
-              存在缺失的字段{" "}
+              存在缺失的数据项{" "}
               <strong>{q.fields.filter((f) => f.missing > 0).length}</strong>
             </span>
-            <span>
-              源版本 <code>{short(q.metadata.source_hash)}</code>
-            </span>
+            <span>数据已保留版本</span>
           </div>
           {expanded && (
             <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
-                    <th>源字段</th>
+                    <th>数据项</th>
                     <th>单位</th>
                     <th>有效 / 缺失</th>
                     <th>缺失率</th>
@@ -626,7 +624,7 @@ export function ResearchComparison({
   }, [modelId]);
   const modelOptions = overview.data?.models || [];
   const rowName = (r: Comparison["rows"][number]) =>
-    names[r.algorithm] + (r.alpha !== null ? ` · α ${r.alpha}` : "");
+    names[r.algorithm] + (r.alpha !== null ? ` · 训练参数 ${r.alpha}` : "");
   return (
     <div className="research-page">
       <div className="research-intro">
@@ -654,8 +652,9 @@ export function ResearchComparison({
                 <option key={m.id} value={m.id}>
                   {names[m.payload.algorithm]}
                   {m.payload.alpha !== null
-                    ? ` α ${m.payload.alpha}`
-                    : ""} · {short(m.id)} · {states[m.state]}
+                    ? ` · 训练参数 ${m.payload.alpha}`
+                    : ""}{" "}
+                  · {recordLabel(m, "研究模型")} · {states[m.state]}
                 </option>
               ))}
             </select>
@@ -842,13 +841,6 @@ export function ResearchComparison({
               </p>
             </Panel>
           </div>
-          <details className="research-provenance">
-            <summary>比较来源与掩码</summary>
-            <p>数据集 {d.dataset_id}</p>
-            <p>源文件 SHA256 {d.source_hash}</p>
-            <p>标签掩码 SHA256 {d.report.row_mask_hash}</p>
-            <p>{d.notice}</p>
-          </details>
         </>
       )}
     </div>
@@ -934,7 +926,7 @@ export function ResearchDecomposition({
             />
           </label>
           <label>
-            分析字段
+            分析指标
             <select value={field} onChange={(e) => setField(e.target.value)}>
               <option value="rt_price">实时电价 · 元/MWh</option>
               <option value="pv_actual_mw">区域光伏实际 · MW</option>
@@ -1118,10 +1110,10 @@ export function ResearchMonitor({
                     "排队 / 准备 / 训练 / 评估",
                     "实际工作阶段，不换算成猜测的百分比。",
                   ],
-                  ["成功", "控制器实际观测到退出码0，且产物已校验。"],
+                  ["成功", "控制器实际确认完成并保存了有效结果。"],
                   [
                     "退出未确认",
-                    "旧控制器没有观测到退出码；保留结果，不能冒称成功。",
+                    "旧控制器没有观测到完成情况；保留结果，不能冒称成功。",
                   ],
                   ["失败 / 取消", "保留原尝试；重试会创建独立任务。"],
                 ].map(([a, b]) => (
@@ -1152,21 +1144,23 @@ export function ResearchMonitor({
                   {d.jobs.map((j) => (
                     <tr key={j.id}>
                       <td>
-                        <code>{short(j.id)}</code>
-                        <small>Ridge α {j.config.alpha}</small>
+                        {recordLabel(j, "训练任务")}
+                        <small>训练参数 {j.config.alpha}</small>
                       </td>
                       <td>
-                        {states[j.state] || j.state}
-                        <small>{j.detail.stage || j.detail.error}</small>
+                        {states[j.state] || stateLabel(j.state)}
+                        <small>
+                          {businessText(j.detail.stage || j.detail.error)}
+                        </small>
                       </td>
                       <td>
                         {j.detail.measured_seconds !== undefined
                           ? `${fmt(j.detail.measured_seconds, 2)} 秒`
                           : "—"}
                         <small>
-                          {j.detail.observed_exit_code !== undefined
-                            ? `观测退出码 ${j.detail.observed_exit_code}`
-                            : "尚无退出确认"}
+                          {j.state === "succeeded"
+                            ? "结果已核验"
+                            : "完成情况见任务进展"}
                         </small>
                       </td>
                       <td>{stamp(j.created_at)}</td>
@@ -1194,14 +1188,24 @@ export function ResearchMonitor({
             {!d.jobs.length && <p className="research-empty">尚无计算任务。</p>}
           </Panel>
           {jobId && (
-            <Panel title={`任务日志 · ${short(jobId)}`}>
+            <Panel title={recordLabel(logs.data, "任务进展")}>
               <Status loading={logs.loading} error={logs.error} />
               <div className="research-log" role="log">
                 {logs.data?.events.map((e, i) => (
                   <div key={i}>
                     <time>{stamp(e.created_at)}</time>
-                    <strong>{states[e.state] || e.state}</strong>
-                    <pre>{JSON.stringify(e.detail, null, 2)}</pre>
+                    <strong>{states[e.state] || stateLabel(e.state)}</strong>
+                    <p>
+                      {businessText(
+                        e.detail.error ||
+                          e.detail.stage ||
+                          (e.state === "succeeded"
+                            ? "训练与评估已经完成，结果已保存。"
+                            : e.state === "unknown_exit"
+                              ? "执行结果暂未完成核验，历史结果已保留。"
+                              : "进展已记录。"),
+                      )}
+                    </p>
                   </div>
                 ))}
               </div>

@@ -5,10 +5,17 @@ import type { PublicCatalog } from "./publicTypes";
 import { fmt, request, stamp, useResource } from "./api";
 import { Panel, Status } from "./components";
 import PredictionInsights from "./PredictionInsights";
+import {
+  recordLabel,
+  businessText,
+  analysisLabel,
+  stateLabel,
+} from "./presentation";
 import type { Observation } from "./PredictionInsights";
 import "./styles/learning.css";
 
 export type Entity<P> = {
+  display_name?: string;
   id: string;
   state: string;
   source_hash: string;
@@ -88,6 +95,7 @@ type Proposal = {
   incorporates_labels: boolean;
 };
 type Job = {
+  display_name?: string;
   id: string;
   state: string;
   dataset_id: string;
@@ -104,6 +112,7 @@ type Job = {
   };
 };
 type Event = {
+  display_name?: string;
   subject_id: string;
   state: string;
   created_at: string;
@@ -143,9 +152,9 @@ type Command = {
   idempotency_key?: string;
 };
 export const names: Record<string, string> = {
-  ridge: "Ridge 训练模型",
-  seasonal_naive_d2: "D−2 同时段基线",
-  seasonal_naive_d7: "D−7 同时段基线",
+  ridge: "电价预测模型",
+  seasonal_naive_d2: "两日前同期基线",
+  seasonal_naive_d7: "七日前同期基线",
   train_weekday_slot_median: "训练集星期 / 时段中位数",
 };
 export const states: Record<string, string> = {
@@ -154,17 +163,17 @@ export const states: Record<string, string> = {
   frozen: "已冻结",
   queued: "排队",
   claimed: "已领取",
-  started: "进程已启动",
+  started: "任务已开始",
   preparing: "准备样本",
   training: "拟合权重",
   evaluating: "评估",
-  child_complete: "等待退出确认",
+  child_complete: "结果已保存，等待确认",
   succeeded: "成功",
   failed: "失败",
   cancelled: "已取消",
   cancel_requested: "正在取消",
   interrupted: "被中断",
-  unknown_exit: "退出未确认",
+  unknown_exit: "完成情况待核验",
   evaluated: "已评估",
   shadow: "影子验证",
   research_active: "研究主版本",
@@ -183,7 +192,6 @@ const done = new Set([
   "interrupted",
   "unknown_exit",
 ]);
-const short = (s?: string) => (s ? s.slice(0, 14) : "—");
 const clock = (slot: number) =>
   `${String(Math.floor(slot / 4)).padStart(2, "0")}:${String((slot % 4) * 15).padStart(2, "0")}`;
 
@@ -214,10 +222,6 @@ export default function LearningLoop({
     () => localStorage.getItem("cecep-research-actor") || "",
   );
   const [reason, setReason] = useState("");
-  const [identityOpen, setIdentityOpen] = useState(
-    () =>
-      focus !== "prediction" || !localStorage.getItem("cecep-research-actor"),
-  );
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -251,6 +255,8 @@ export default function LearningLoop({
       id: string;
       date: string;
       model_id: string;
+      model_name?: string;
+      display_name?: string;
       created_at: string;
       validation_only: boolean;
     }[];
@@ -336,13 +342,12 @@ export default function LearningLoop({
     const operationReason =
       reason.trim() ||
       (command.action === "predict"
-        ? `查看模型 ${command.object_id} 在 ${command.date} 的96点研究推理；保留原始数据与模型证据。`
+        ? `按所选模型执行 ${command.date} 的96点研究预测。`
         : command.action === "analyze"
-          ? `核对预测 ${command.object_id} 的真实模型输出、误差与来源。`
+          ? "核对所选预测的输出、误差与来源。"
           : "");
     if (!operationReason) {
       setError("保存复核或变更模型前，请展开操作说明并填写具体依据。");
-      setIdentityOpen(true);
       return null;
     }
     setBusy(command.action);
@@ -420,7 +425,7 @@ export default function LearningLoop({
       </div>
       <p className="learning-boundary">
         研究用途。历史发布时间未经核验，采用
-        historical_assumed；不代表岚能、凌光的生产能力。本站训练权重与源文件预测列分开记录。
+        历史数据仅用于研究；不代表岚能、凌光的生产能力。本站训练权重与源文件预测列分开记录。
       </p>
       <Status
         loading={resource.loading}
@@ -431,15 +436,13 @@ export default function LearningLoop({
           {focus !== "prediction" && (
             <div className="learning-control-strip">
               <span className={`badge ${workerFresh ? "info" : "warning"}`}>
-                {workerFresh ? "CPU 执行器在线" : "执行器心跳未就绪"}
+                {workerFresh ? "训练服务在线" : "训练服务等待确认"}
               </span>
-              <span>单任务 · 最多4线程 · 30分钟上限</span>
+              <span>任务依次执行 · 单次最长30分钟</span>
               <span>
                 主版本：
                 {activeModel
-                  ? names[activeModel.payload.algorithm] +
-                    " · " +
-                    short(activeModel.id)
+                  ? recordLabel(activeModel, "当前研究模型")
                   : "尚未初始化"}
               </span>
               <span>状态检查 {stamp(resource.checkedAt || "")}</span>
@@ -456,15 +459,7 @@ export default function LearningLoop({
               {data.monitor.detail.error}
             </p>
           )}
-          <details
-            className="research-action-identity"
-            open={identityOpen}
-            onToggle={(e) => setIdentityOpen(e.currentTarget.open)}
-          >
-            <summary>
-              本次操作身份与说明
-              {actor ? ` · ${actor}` : " · 首次操作请填写身份"}
-            </summary>
+          <section className="research-action-identity">
             <Panel
               title="操作记录"
               subtitle="填写本次操作的身份与依据；当前身份为内网声明，尚未接入企业身份认证。"
@@ -514,18 +509,8 @@ export default function LearningLoop({
                 </p>
               )}
             </Panel>
-          </details>
-          {!identityOpen && error && (
-            <p className="inline-error" role="alert">
-              {error}
-            </p>
-          )}
-          {!identityOpen && message && (
-            <p className="inline-success" role="status">
-              {message}
-            </p>
-          )}
-          {!identityOpen && busy && <p role="status">正在执行：{busy}…</p>}
+          </section>
+
           {(focus === "all" || focus === "training") && (
             <Panel
               title="数据版本与训练任务"
@@ -534,10 +519,8 @@ export default function LearningLoop({
               <div className="learning-actions">
                 <span>
                   当前源：
-                  <code>
-                    {short(catalog.data?.metadata?.source_hash)}
-                  </code> · {catalog.data?.metadata?.row_count.toLocaleString()}{" "}
-                  行
+                  {catalog.data?.metadata?.name || "当前数据"} ·{" "}
+                  {catalog.data?.metadata?.row_count.toLocaleString()} 行
                 </span>
                 <button
                   disabled={blocked || !catalog.data?.available}
@@ -554,7 +537,7 @@ export default function LearningLoop({
                   {dataset ? "核对已登记版本" : "登记当前数据版本"}
                 </button>
                 <label>
-                  Ridge α
+                  训练正则强度
                   <select
                     value={alpha}
                     onChange={(e) => setAlpha(Number(e.target.value))}
@@ -620,22 +603,24 @@ export default function LearningLoop({
                       {data.jobs.map((j) => (
                         <tr key={j.id}>
                           <td>
-                            <code>{short(j.id)}</code>
+                            {recordLabel(j, "训练任务")}
                             <small>{stamp(j.created_at)}</small>
                           </td>
-                          <td>α {j.config.alpha}</td>
+                          <td>训练参数 {j.config.alpha}</td>
                           <td>
                             {states[j.state] || j.state}
-                            <small>{j.detail.stage || j.detail.error}</small>
+                            <small>
+                              {businessText(j.detail.stage || j.detail.error)}
+                            </small>
                           </td>
                           <td>
                             {j.detail.measured_seconds !== undefined
                               ? `${fmt(j.detail.measured_seconds, 2)} 秒`
                               : "—"}
                             <small>
-                              {j.detail.observed_exit_code !== undefined
-                                ? `观测退出码 ${j.detail.observed_exit_code}`
-                                : "尚无退出确认"}
+                              {j.state === "succeeded"
+                                ? "执行已完成核验"
+                                : "请查看任务结果"}
                             </small>
                           </td>
                           <td>
@@ -688,9 +673,7 @@ export default function LearningLoop({
             >
               {model && dataset && model.payload.dataset_id !== dataset.id && (
                 <p className="research-help">
-                  当前查看的模型属于冻结数据集 {model.payload.dataset_id}
-                  ；新建训练将使用当前源版本 {dataset.id}
-                  。复现旧数据请使用原任务的独立重试，旧输入不会换成新文件。
+                  当前模型使用历史训练数据，新建训练使用当前数据。如需复现旧结果，请重试原训练任务。
                 </p>
               )}
               <label className="research-model-search">
@@ -699,7 +682,7 @@ export default function LearningLoop({
                   type="search"
                   value={modelQuery}
                   onChange={(e) => setModelQuery(e.target.value)}
-                  placeholder="算法、版本ID或状态"
+                  placeholder="模型名称或状态"
                 />
               </label>
               <div className="table-scroll">
@@ -731,12 +714,10 @@ export default function LearningLoop({
                               <strong>
                                 {names[m.payload.algorithm]}
                                 {m.payload.alpha !== null
-                                  ? ` · α ${m.payload.alpha}`
+                                  ? ` · 训练参数 ${m.payload.alpha}`
                                   : ""}
                               </strong>
-                              <small>
-                                {short(m.id)} · {short(m.payload.dataset_id)}
-                              </small>
+                              <small>{recordLabel(m, "研究模型")}</small>
                             </td>
                             <td>
                               {states[m.state] || m.state}
@@ -822,8 +803,7 @@ export default function LearningLoop({
                         <option value="">选择已完成模型</option>
                         {data.models.map((m) => (
                           <option key={m.id} value={m.id}>
-                            {names[m.payload.algorithm]} · {short(m.id)} ·{" "}
-                            {states[m.state]}
+                            {recordLabel(m, "研究模型")} · {states[m.state]}
                           </option>
                         ))}
                       </select>
@@ -931,7 +911,7 @@ export default function LearningLoop({
                             </table>
                           </div>
                           <p className="learning-help">
-                            Ridge − 基线的日配对 MAE
+                            预测模型与基线的日均误差差异
                             差（95%区间；7天移动块、2000次）：
                             {Object.entries(selectedReport.comparisons).map(
                               ([name, c]) => (
@@ -952,40 +932,7 @@ export default function LearningLoop({
                           </p>
                         </>
                       )}
-                      {focus !== "prediction" && (
-                        <details>
-                          <summary>模型与样本证据</summary>
-                          <dl className="learning-evidence">
-                            <dt>模型权重 SHA256</dt>
-                            <dd>{model.payload.weights.sha256}</dd>
-                            <dt>特征值 SHA256</dt>
-                            <dd>{model.payload.feature_value_hash}</dd>
-                            <dt>数据集版本</dt>
-                            <dd>{model.payload.dataset_id}</dd>
-                            <dt>重载校验</dt>
-                            <dd>
-                              {model.payload.artifact_load_verified
-                                ? "通过"
-                                : "未通过"}{" "}
-                              · {fmt(model.payload.measured_seconds, 2)} 秒 ·{" "}
-                              {model.payload.peak_rss_kib !== null
-                                ? `${fmt(model.payload.peak_rss_kib / 1024)} MiB 峰值进程内存`
-                                : "内存未记录"}
-                            </dd>
-                            {Object.entries(model.payload.counts).map(
-                              ([name, count]) => (
-                                <div key={name}>
-                                  <dt>{name}</dt>
-                                  <dd>
-                                    纳入 {count.included} · 剔除{" "}
-                                    {count.excluded} · {count.days} 天
-                                  </dd>
-                                </div>
-                              ),
-                            )}
-                          </dl>
-                        </details>
-                      )}
+                      {focus !== "prediction" && null}
                     </>
                   )}
                   {!model && (
@@ -1023,13 +970,13 @@ export default function LearningLoop({
                           ) && (
                             <option value={activePrediction.id}>
                               {activePrediction.payload.date} · 当前已打开记录 ·{" "}
-                              {short(activePrediction.id)}
+                              {recordLabel(activePrediction, "已保存预测")}
                             </option>
                           )}
                         {historyRecords.data?.records.map((r) => (
                           <option key={r.id} value={r.id}>
                             {r.date} · {stamp(r.created_at)} ·{" "}
-                            {short(r.model_id)} ·{" "}
+                            {r.model_name || "研究模型"} ·{" "}
                             {r.validation_only ? "调参验证" : "研究推理"}
                           </option>
                         ))}
@@ -1195,9 +1142,9 @@ export default function LearningLoop({
                         <div className="learning-answer">
                           <p className="learning-help">
                             智能体工具：注册 NumPy 电价模型 ·{" "}
-                            {analysis.payload.llm_mode} · {short(analysis.id)}
+                            {analysisLabel(analysis.payload.llm_mode)}
                           </p>
-                          <p>{analysis.payload.answer}</p>
+                          <p>{businessText(analysis.payload.answer)}</p>
                         </div>
                       )}
                     </div>
@@ -1223,14 +1170,15 @@ export default function LearningLoop({
                         {data.feedback.map((f) => (
                           <option key={f.id} value={f.id}>
                             {f.payload.date} {clock(f.payload.slot)} ·{" "}
-                            {states[f.state]} · {short(f.id)}
+                            {states[f.state] || stateLabel(f.state)} ·{" "}
+                            {recordLabel(f, "复核记录")}
                           </option>
                         ))}
                       </select>
                     </label>
                     {currentFeedback && (
                       <>
-                        <p>{currentFeedback.payload.reason}</p>
+                        <p>{businessText(currentFeedback.payload.reason)}</p>
                         <p className="learning-help">
                           {currentFeedback.payload.actor} · 原始标签不改写 ·
                           训练标签资格：否
@@ -1264,7 +1212,7 @@ export default function LearningLoop({
                             if (r) setProposalId(r.id);
                           }}
                         >
-                          创建 α={alpha} 重训提案
+                          创建参数为 {alpha} 的重训提案
                         </button>
                         <p className="learning-help">
                           只接受调参窗口的反馈作为选参依据。提升窗口之后的意见需新的未来评估合同。
@@ -1280,7 +1228,8 @@ export default function LearningLoop({
                         <option value="">选择提案</option>
                         {data.proposals.map((p) => (
                           <option key={p.id} value={p.id}>
-                            α {p.payload.alpha} · {short(p.id)}
+                            {recordLabel(p, "重训提案")} · 训练参数{" "}
+                            {p.payload.alpha}
                           </option>
                         ))}
                       </select>
@@ -1310,7 +1259,8 @@ export default function LearningLoop({
                       选中：
                       {model ? names[model.payload.algorithm] : "尚无模型"}
                       <br />
-                      {short(modelId)} · {model ? states[model.state] : "—"}
+                      {recordLabel(model, "所选模型")} ·{" "}
+                      {model ? states[model.state] : "—"}
                     </p>
                     <p className="learning-help">
                       审批只变更研究主版本。此公共数据合同始终禁止生产发布。
@@ -1376,10 +1326,10 @@ export default function LearningLoop({
                         选择当前主版本核验
                       </button>
                     </div>
-                    <details>
-                      <summary>一次性最终审计</summary>
+                    <section className="research-final-review">
+                      <h3>最终评估</h3>
                       <p>
-                        冻结当前 Ridge
+                        固定当前电价预测模型
                         权重后启封最终窗口。每个源版本仅允许一次；失败也消耗启封资格，后续选参不能再声称独立检验。
                       </p>
                       <label>
@@ -1407,7 +1357,13 @@ export default function LearningLoop({
                       </button>
                       {data.audits.map((a) => (
                         <p key={a.id}>
-                          {short(a.payload.model_id)} · 最终 Ridge MAE{" "}
+                          {recordLabel(
+                            data.models.find(
+                              (m) => m.id === a.payload.model_id,
+                            ),
+                            "研究模型",
+                          )}{" "}
+                          · 最终平均误差{" "}
                           {fmt(
                             a.payload.report.final_audit.scores.ridge.mae,
                             3,
@@ -1415,7 +1371,7 @@ export default function LearningLoop({
                           · {a.payload.report.final_audit.rows} 条
                         </p>
                       ))}
-                    </details>
+                    </section>
                   </Panel>
                 </aside>
               )}
@@ -1426,38 +1382,7 @@ export default function LearningLoop({
               title="数据流与操作证据"
               subtitle="源文件 → 冻结切片 → 任务 → 权重 → 预测 → 复核 → 重训 → 规则审批 / 回滚。"
             >
-              <details>
-                <summary>查看最近100条追加式事件</summary>
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>时间</th>
-                        <th>对象</th>
-                        <th>实际事件</th>
-                        <th>证据详情</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.events.map((e, i) => (
-                        <tr key={i}>
-                          <td>{stamp(e.created_at)}</td>
-                          <td>
-                            <code>{short(e.subject_id)}</code>
-                          </td>
-                          <td>{states[e.state] || e.state}</td>
-                          <td>
-                            <details>
-                              <summary>展开</summary>
-                              <pre>{JSON.stringify(e.detail, null, 2)}</pre>
-                            </details>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
+              <p className="research-help">操作进展与结果可在运行监测查看。</p>
             </Panel>
           )}
         </>

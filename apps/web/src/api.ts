@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Scope } from "./types";
+import { businessText } from "./presentation";
 export function query(scope: Scope) {
   const p = new URLSearchParams();
   Object.entries(scope).forEach(([k, v]) => {
@@ -22,10 +23,7 @@ export async function request<T>(
   const data = await r.json();
   if (!r.ok)
     throw new Error(
-      data.error ||
-        (data.detail && JSON.stringify(data.detail)) ||
-        data.answer_markdown ||
-        `HTTP ${r.status}`,
+      businessText(data.error || (typeof data.detail==="string"?data.detail:data.detail?"输入内容不符合要求，请检查填写项。":null) || data.answer_markdown || "请求未完成，请稍后重试。"),
     );
   return data as T;
 }

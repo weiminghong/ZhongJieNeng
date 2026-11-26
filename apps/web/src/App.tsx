@@ -1,3 +1,4 @@
+import { stationLabel } from "./presentation";
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
@@ -500,7 +501,9 @@ export default function App() {
                     </option>
                   ))}
                   {!bootstrap.data && (
-                    <option value={scope.station_id}>{scope.station_id}</option>
+                    <option value={scope.station_id}>
+                      {stationLabel(scope.station_id)}
+                    </option>
                   )}
                 </select>
               </label>

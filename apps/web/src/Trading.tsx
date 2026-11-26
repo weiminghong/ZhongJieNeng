@@ -1,3 +1,4 @@
+import { businessText } from "./presentation";
 import { useCallback, useState } from "react";
 import { Calculator, ShieldCheck } from "lucide-react";
 import type { CustomSeriesOption, EChartsOption } from "echarts";
@@ -346,7 +347,7 @@ export default function Trading({
                 </div>
               </div>
               <div className="panel-note warning-copy">
-                {chosen.warning} · 规则版本 {chosen.rule_version_id}
+                {businessText(chosen.warning)}
               </div>
               <div className="formula">
                 合同电量 × 合同价 + (申报电量 − 合同电量) × 日前价 + (实测电量 −

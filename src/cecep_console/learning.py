@@ -108,7 +108,13 @@ def get_object(store, oid, kind=None):
     r = store.db.execute("SELECT * FROM ml_object WHERE object_id=?", (oid,)).fetchone()
     if not r or (kind and r["kind"] != kind):
         raise ValueError("指定对象不存在或类型不符")
-    return dict(id=r["object_id"], kind=r["kind"], parent_id=r["parent_id"], source_hash=r["source_hash"],
+    payload=json.loads(r["payload_json"])
+    family=payload.get("algorithm") if r["kind"]=="model" else None
+    n=store.db.execute("SELECT count(*) FROM ml_object WHERE kind=? AND rowid<=(SELECT rowid FROM ml_object WHERE object_id=?)"+(" AND json_extract(payload_json,'$.algorithm')=?" if family else ""),(r["kind"],oid,family) if family else (r["kind"],oid)).fetchone()[0]
+    prefix={"dataset":"研究数据","source_revision":"历史数据","prediction":"预测记录","observation_match":"观测核对","feedback":"复核记录","proposal":"重训提案","audit":"审核记录","analysis":"分析记录"}.get(r["kind"],"研究记录")
+    if family:prefix={"ridge":"电价预测模型","seasonal_naive_d2":"两日前同期基线","seasonal_naive_d7":"七日前同期基线","train_weekday_slot_median":"历史同期基线"}.get(family,"研究模型")
+    label=f"{prefix}（第{n}版）" if r["kind"] in {"model","dataset","source_revision"} else f"{prefix}（第{n}次）"
+    return dict(id=r["object_id"], display_name=label, kind=r["kind"], parent_id=r["parent_id"], source_hash=r["source_hash"],
                 created_at=r["created_at"], payload=json.loads(r["payload_json"]), **state(store, oid))
 
 
@@ -274,7 +280,8 @@ def job(store, jid):
     r = store.db.execute("SELECT * FROM ml_job WHERE job_id=?", (jid,)).fetchone()
     if not r:
         raise ValueError("训练任务不存在")
-    return dict(id=jid, dataset_id=r["dataset_id"], parent_job_id=r["parent_job_id"], config=json.loads(r["config_json"]), created_at=r["created_at"], **state(store, jid))
+    n=store.db.execute("SELECT count(*) FROM ml_job WHERE rowid<=(SELECT rowid FROM ml_job WHERE job_id=?)",(jid,)).fetchone()[0]
+    return dict(id=jid, display_name=f"训练任务（第{n}次）", dataset_id=r["dataset_id"], parent_job_id=r["parent_job_id"], config=json.loads(r["config_json"]), created_at=r["created_at"], **state(store, jid))
 
 
 def submit(store, dataset_id, alpha, key, parent=None, proposal_id=None):
@@ -438,13 +445,14 @@ def confirm_feedback(store, oid, actor, reason):
 def analyze_prediction(store, oid, question):
     from .model_settings import load_settings, select_evidence, ProviderError
     prediction = get_object(store, oid, "prediction"); p = prediction["payload"]
+    model_name=get_object(store,p["model_id"],"model")["display_name"]
     paired = [r for r in p["points"] if r["actual"] is not None]
     worst = sorted(paired, key=lambda r: abs(r["predicted"]-r["actual"]), reverse=True)[:3]
-    facts = [f"本站真实权重推理：模型 {p['model_id']}，权重 SHA256 {p['weights_hash']}，交易日 {p['date']}，96点，单位元/MWh。",
+    facts = [f"{model_name}在{p['date']}的预测覆盖96个时段，单位为元/MWh。",
              f"原始标签有效 {p['scores']['n']} 条，MAE {p['scores']['mae']:.3f}，RMSE {p['scores']['rmse']:.3f}，MBE {p['scores']['mbe']:.3f}。" if p['scores']['n'] else "本次96点推理尚无有效实际标签，不计算误差。",
-             f"逻辑截止 {p['logical_cutoff']}，特征最晚 {p['latest_feature_day']}；时点口径 historical_assumed，历史到达时间未经核验。",
+             f"使用的历史输入最晚到{p['latest_feature_day']}，原始发布时间尚未核验，结果按历史研究口径解读。",
              "调参验证结果不可称为独立测试或场站生产效果。" if p["validation_only"] else "结果属于省级公开市场研究，不代表浙江场站收益或生产精度。"]
-    facts += [f"偏差时段 slot={r['slot']}，源行 {r['source_line']}，预测 {r['predicted']:.3f}，实际 {r['actual']:.3f}。数据只能证明偏差，不能确认气象或设备根因。" for r in worst]
+    facts += [f"{r['slot']//4:02d}:{r['slot']%4*15:02d}时段，预测 {r['predicted']:.3f}，实际 {r['actual']:.3f}。这些数据只能说明偏差，不能确认气象或设备根因。" for r in worst]
     settings = load_settings(); indices = list(range(len(facts))); failure = None
     mode = "deterministic_tools_only"
     if settings.ready:

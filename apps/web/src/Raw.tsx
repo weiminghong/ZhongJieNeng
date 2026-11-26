@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Download, ExternalLink, Search, Database } from "lucide-react";
+import { Download, ExternalLink, Search } from "lucide-react";
 import type { Scope, Overview, Lineage } from "./types";
 import { query, useResource, fmt, time, stamp } from "./api";
 import { Drawer, Panel, Status } from "./components";
+import BusinessFacts from "./BusinessFacts";
+import { fieldLabel, stateLabel } from "./presentation";
 
 function LineagePanel({
   scope,
@@ -20,48 +22,26 @@ function LineagePanel({
       encodeURIComponent(interval),
   );
   return (
-    <Drawer title={`${time(interval)} · L1 数据血缘`} onClose={onClose}>
+    <Drawer title={`${time(interval)} · 原始数据来源`} onClose={onClose}>
       <div className="drawer-body">
         <Status loading={result.loading} error={result.error} />
         {result.data && (
           <>
             <p className="muted">截止时点：{stamp(result.data.cutoff_at)}</p>
             {result.data.evidence.map((e, i) => (
-              <details key={i} className="evidence" open={i === 0}>
-                <summary>
-                  <Database size={14} />
-                  <strong>{e.reference.table}</strong>
-                  <span
-                    className={`badge ${e.available_before_cutoff ? "success" : "error"}`}
-                  >
-                    {e.available_before_cutoff ? "时点可见" : "晚于 cutoff"}
-                  </span>
-                </summary>
-                <dl>
-                  <dt>record_id</dt>
-                  <dd>{e.reference.record_id}</dd>
-                  <dt>source_id</dt>
-                  <dd>
-                    {String(
-                      e.record?.source_id ??
-                        "见 prediction_run / feature_inputs",
-                    )}
-                  </dd>
-                  <dt>batch_id</dt>
-                  <dd>{String(e.record?.batch_id ?? "见输入快照")}</dd>
-                  <dt>available_at ≤ cutoff_at</dt>
-                  <dd>{stamp(e.reference.available_at)}</dd>
-                </dl>
-                <pre>{JSON.stringify(e.record, null, 2)}</pre>
+              <section key={i} className="evidence">
+                <h3>{fieldLabel(e.reference.table)}</h3>
+                <p
+                  className={`badge ${e.available_before_cutoff ? "success" : "warning"}`}
+                >
+                  {e.available_before_cutoff ? "查询时已可用" : "晚于查询时点"}
+                </p>
+                <p>数据可用时间：{stamp(e.reference.available_at)}</p>
+                <BusinessFacts value={e.record} />
                 {e.feature_inputs && (
-                  <details>
-                    <summary>
-                      输入快照血缘 · {e.feature_inputs.length} 条
-                    </summary>
-                    <pre>{JSON.stringify(e.feature_inputs, null, 2)}</pre>
-                  </details>
+                  <p>本次使用 {e.feature_inputs.length} 项已保存输入。</p>
                 )}
-              </details>
+              </section>
             ))}
           </>
         )}
@@ -124,17 +104,22 @@ export default function Raw({
       "ghi_wm2",
       "cloud_cover_pct",
       "quality_flag",
-      "lineage_refs_json",
     ] as const;
     const escape = (v: unknown) =>
       '"' + String(v ?? "").replaceAll('"', '""') + '"';
     const blob = new Blob(
       [
         "\ufeff" +
-          fields.join(",") +
+          fields.map(fieldLabel).join(",") +
           "\r\n" +
           filtered
-            .map((r) => fields.map((f) => escape(r[f])).join(","))
+            .map((r) =>
+              fields
+                .map((f) =>
+                  escape(f === "quality_flag" ? stateLabel(r[f]) : r[f]),
+                )
+                .join(","),
+            )
             .join("\r\n"),
       ],
       { type: "text/csv;charset=utf-8;" },
@@ -142,7 +127,7 @@ export default function Raw({
     const url = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = url;
-    a.download = `${scope.station_id}-${scope.date}-filtered.csv`;
+    a.download = `场站数据-${scope.date}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -173,7 +158,7 @@ export default function Raw({
           <small>合成漂移场景示例</small>
         </div>
         <div>
-          <span>PIT 时点溯源</span>
+          <span>按查询时点溯源</span>
           <strong>输入可追溯</strong>
           <a href={reportUrl} target="_blank" rel="noreferrer">
             中文 Evidently 报告 <ExternalLink size={12} />
@@ -241,7 +226,7 @@ export default function Raw({
                   <th>日内 MW</th>
                   <th>日前价</th>
                   <th>实时价</th>
-                  <th>Δ 元/MWh</th>
+                  <th>价差 元/MWh</th>
                   <th>辐照 W/m²</th>
                   <th>云量 %</th>
                   <th>状态</th>

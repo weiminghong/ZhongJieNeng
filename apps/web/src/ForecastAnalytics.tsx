@@ -185,7 +185,7 @@ export default function ForecastAnalytics({
         type: "category",
         axisLine: { lineStyle: { color: color("outline") } },
         boundaryGap: true,
-        data: buckets.map((r) => `${r.name}\nn=${r.sample_count}`),
+        data: buckets.map((r) => `${r.name}\n样本 ${r.sample_count}`),
       },
       yAxis: { ...b.yAxis, name: "MAE / MW" },
       series: [
@@ -208,7 +208,7 @@ export default function ForecastAnalytics({
         type: "category",
         axisLine: { lineStyle: { color: color("outline") } },
         boundaryGap: true,
-        data: buckets.map((r) => `${r.name}\nn=${r.sample_count}`),
+        data: buckets.map((r) => `${r.name}\n样本 ${r.sample_count}`),
         axisLabel: { interval: 0, fontSize: 10 },
       },
       yAxis: { ...b.yAxis, name: "MW" },

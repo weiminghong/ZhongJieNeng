@@ -1,3 +1,10 @@
+import BusinessFacts from "./BusinessFacts";
+import {
+  businessText,
+  taskLabel,
+  stateLabel,
+  sourceLabel,
+} from "./presentation";
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -181,16 +188,15 @@ export default function Rsi({
                       </strong>
                     </span>
                   </div>
-                  <details className="evidence">
-                    <summary>自动气象 / 事件线索（未确认因果）</summary>
-                    <pre>
-                      {JSON.stringify(
-                        JSON.parse(selected.auto_clues_json),
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
+                  <section className="evidence">
+                    <h3>天气与事件线索</h3>
+                    <BusinessFacts
+                      value={JSON.parse(selected.auto_clues_json)}
+                    />
+                    <p className="research-help">
+                      这些线索尚不能确认因果，请人工核对。
+                    </p>
+                  </section>
                   {draft && (
                     <p className="warning-copy">
                       Agent 草稿仅供复核，请编辑为人工确认根因后保存。
@@ -240,19 +246,15 @@ export default function Rsi({
                         void act(
                           "/api/v1/rsi/rag-ingest",
                           { feedback_id: selected.feedback?.feedback_id },
-                          "已确认案例已沉淀至 RAG，FTS5 索引已同步。",
+                          "已确认案例已加入业务知识，可用于后续查询。",
                         )
                       }
                     >
                       <BookPlus size={15} />
-                      {selected.rag_doc_id ? "已沉淀案例" : "一键沉淀 RAG"}
+                      {selected.rag_doc_id ? "已沉淀案例" : "保存为业务案例"}
                     </button>
                   </div>
-                  {selected.feedback && (
-                    <p className="muted">
-                      反馈编号：{selected.feedback.feedback_id}
-                    </p>
-                  )}
+                  {selected.feedback && <p className="muted">复核意见已保存</p>}
                 </div>
               )}
             </div>
@@ -283,14 +285,17 @@ export default function Rsi({
               return (
                 <div key={c.candidate_id} className="candidate-row">
                   <div>
-                    <strong>{c.candidate_model_version_id}</strong>
-                    <p>{c.hypothesis}</p>
-                    <small>
-                      基线 {c.base_model_version_id} · 评估{" "}
-                      {c.evaluation_id || "未提供"}
-                    </small>
+                    <strong>
+                      {model
+                        ? `${model.model_name} · 第${model.version}版`
+                        : "待审核模型"}
+                    </strong>
+                    <p>{businessText(c.hypothesis)}</p>
+                    <small>基线与评估记录已关联保存</small>
                   </div>
-                  <span className="badge info">{model?.effective_status}</span>
+                  <span className="badge info">
+                    {stateLabel(model?.effective_status)}
+                  </span>
                   <div className="head-tools">
                     <button
                       className="primary-button"
@@ -307,7 +312,7 @@ export default function Rsi({
                             action: "approve",
                             reason: approvalReason,
                           },
-                          "候选审批已持久化，主版本与 serving 缓存已刷新。",
+                          "候选审批已持久化，主版本与页面结果已刷新。",
                         )
                       }
                     >
@@ -357,16 +362,16 @@ export default function Rsi({
                     <td>
                       {m.model_name} v{m.version}
                     </td>
-                    <td>{m.task}</td>
+                    <td>{taskLabel(m.task)}</td>
                     <td>
                       <span
                         className={`badge ${m.effective_status === "production" ? "success" : ""}`}
                       >
-                        {m.effective_status}
+                        {stateLabel(m.effective_status)}
                       </span>
                     </td>
                     <td>{m.trained ? "已训练" : "未训练 · 场景版本"}</td>
-                    <td>{m.source_mode}</td>
+                    <td>{sourceLabel(m.source_mode)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -398,11 +403,15 @@ export default function Rsi({
                   {result.data.lifecycle.map((e) => (
                     <tr key={e.lifecycle_event_id}>
                       <td>{stamp(e.created_at)}</td>
-                      <td>{e.model_version_id}</td>
                       <td>
-                        {e.from_status} → {e.to_status}
+                        {result.data?.models.find(
+                          (m) => m.model_version_id === e.model_version_id,
+                        )?.model_name || "研究模型"}
                       </td>
-                      <td>{e.reason}</td>
+                      <td>
+                        {stateLabel(e.from_status)} → {stateLabel(e.to_status)}
+                      </td>
+                      <td>{businessText(e.reason)}</td>
                     </tr>
                   ))}
                 </tbody>

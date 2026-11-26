@@ -1,4 +1,5 @@
 export interface PublicMetadata {
+  display_name?:string;
   dataset_id: string;
   name: string;
   source_url: string;

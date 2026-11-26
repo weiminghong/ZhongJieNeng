@@ -605,3 +605,27 @@
     display: block;
   }
 }
+
+/* Business tables scroll with the page; no inner vertical scroll area. */
+body .energy-shell .table-wrap,
+body .energy-shell .table-scroll,
+body .energy-shell .raw-table,
+body .energy-shell .public-raw-table {
+  max-height: none;
+  height: auto;
+  overflow-x: auto;
+}
+body .energy-shell .public-history article p,
+body .energy-shell .rail-answer > p,
+body .energy-shell .research-log {
+  max-height: none;
+  overflow: visible;
+}
+.research-final-review {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ce-color-outline);
+}
+.research-final-review h3 {
+  margin-bottom: 12px;
+}

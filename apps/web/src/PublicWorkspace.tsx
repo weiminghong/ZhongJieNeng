@@ -24,6 +24,7 @@ import type {
 import { fmt, request, stamp, time, useResource } from "./api";
 import { Panel, Status } from "./components";
 import Chart, { baseOption, color } from "./Chart";
+import { businessText, analysisLabel } from "./presentation";
 
 const steps: { tab: PublicTab; title: string; task: string }[] = [
   { tab: "raw", title: "核对数据", task: "查看原始行、空值和来源" },
@@ -41,7 +42,7 @@ const explanations: Record<PublicTab, string> = {
   agent:
     "分析绑定当前日期、回放范围和文件版本；数值由工具计算，摘要保留证据行号。",
   rsi: "核对选中原始记录并保存人工结论。这里只记录复核，不自动纳入训练或发布模型。",
-  connections: "查看数据覆盖、原始字段、更新方式及尚缺的业务要素。",
+  connections: "查看数据覆盖、数据项、更新方式及尚缺的业务要素。",
 };
 
 export default function PublicWorkspace({
@@ -358,17 +359,15 @@ export default function PublicWorkspace({
     setFailure("");
     setMessage("");
     try {
-      const result = await request<{ run_id: string }>(
-        "/api/v1/public-data/review",
-        {
-          date: draftScope.date,
-          cursor: draftScope.cursor,
-          selected_slot: draftScope.slot,
-          source_hash: draftScope.source_hash,
-          reason,
-        },
-      );
-      setMessage(`复核已保存，记录 ${result.run_id.slice(0, 8)}；未触发训练。`);
+      await request<{ run_id: string }>("/api/v1/public-data/review", {
+        date: draftScope.date,
+        cursor: draftScope.cursor,
+        selected_slot: draftScope.slot,
+        source_hash: draftScope.source_hash,
+        archived: !!viewSource,
+        reason,
+      });
+      setMessage("复核已保存，未触发训练。");
       setReason("");
       setDraftScope(null);
       setLocalRevision((v) => v + 1);
@@ -385,18 +384,13 @@ export default function PublicWorkspace({
     setFailure("");
     setMessage("");
     try {
-      const result = await request<PublicScenario>(
-        "/api/v1/public-data/scenario",
-        {
-          ...payload,
-          quantity_mwh: quantity,
-          fee_yuan_mwh: fee,
-          persist: true,
-        },
-      );
-      setMessage(
-        `情景计算已保存，记录 ${result.saved?.run_id.slice(0, 8)}；没有提交交易。`,
-      );
+      await request<PublicScenario>("/api/v1/public-data/scenario", {
+        ...payload,
+        quantity_mwh: quantity,
+        fee_yuan_mwh: fee,
+        persist: true,
+      });
+      setMessage("情景计算已保存，未提交交易。");
       setLocalRevision((v) => v + 1);
     } catch (error) {
       setFailure((error as Error).message);
@@ -512,7 +506,10 @@ export default function PublicWorkspace({
           <Database size={20} />
           <div>
             <strong>正在按输入版本查看原始数据</strong>
-            <span>{viewSource.slice(0, 16)} · 图表和原始行均绑定此版本</span>
+            <span>
+              {meta?.display_name || "已保存的历史数据"} ·
+              图表和原始行均绑定此版本
+            </span>
           </div>
           <button
             onClick={() => {
@@ -852,7 +849,7 @@ export default function PublicWorkspace({
                           </div>
                         </Panel>
                         <Panel
-                          title="选中记录的完整原始字段"
+                          title="选中记录的完整数据项"
                           subtitle="不把字段缺失补为零，也不把山东聚合出力转换为岚能场站实测。"
                         >
                           <dl className="public-source-values">
@@ -929,7 +926,9 @@ export default function PublicWorkspace({
                                 {fmt(shownCalculation.gross_spread_yuan)} 元 −
                                 假设费用 {fmt(shownCalculation.fees_yuan)} 元
                               </p>
-                              <code>{shownCalculation.formula}</code>
+                              <span>
+                                情景差额 = 电量 ×（实时价 − 日前价 − 费用）
+                              </span>
                               <button
                                 onClick={() => void saveScenario()}
                                 disabled={!ready || busy || calculating}
@@ -1091,25 +1090,15 @@ export default function PublicWorkspace({
                       </form>
                       {shownAnswer && (
                         <div className="public-answer">
-                          <p>{shownAnswer.answer_markdown}</p>
+                          <p>{businessText(shownAnswer.answer_markdown)}</p>
                           <small>
-                            {shownAnswer.llm_mode} ·{" "}
+                            {analysisLabel(shownAnswer.llm_mode)} ·{" "}
                             {shownAnswer.evidence.source_lines.length}{" "}
                             条来源记录 · 分析已保存
                           </small>
-                          <details>
-                            <summary>查看计算事实与来源</summary>
-                            <pre>
-                              {JSON.stringify(
-                                {
-                                  facts: shownAnswer.facts,
-                                  evidence: shownAnswer.evidence,
-                                },
-                                null,
-                                2,
-                              )}
-                            </pre>
-                          </details>
+                          <p className="research-help">
+                            分析已绑定当前日期和数据版本，可继续核对原始记录。
+                          </p>
                           <button
                             onClick={() => {
                               setPlaying(false);
@@ -1153,7 +1142,7 @@ export default function PublicWorkspace({
                       </div>
                       <div>
                         <dt>文件版本</dt>
-                        <dd className="public-hash">{meta.source_hash}</dd>
+                        <dd>{meta.display_name || "已保存的数据版本"}</dd>
                       </div>
                       <div>
                         <dt>更新方式</dt>
@@ -1191,13 +1180,13 @@ export default function PublicWorkspace({
                   <Panel title="适用范围与仍缺的要素">
                     <div className="public-boundaries">
                       <p>
-                        可用于公开市场历史数据研究、源字段预测与实绩对照、事后价差敞口和人工复核。
+                        可用于公开市场历史数据研究、数据项预测与实绩对照、事后价差敞口和人工复核。
                       </p>
                       <p>
                         该文件不是浙江场站数据；当前{meta.source_columns.length}
                         列没有场站气象实测，也缺少原始预报发布时间、到达时间、场站合同、设备状态及正式结算规则。
                       </p>
-                      <p>{meta.basis}</p>
+                      <p>{businessText(meta.basis)}</p>
                       <p>
                         本站实时推理、训练和交易执行状态不会由这份文件的存在自动变为已完成。
                       </p>
@@ -1262,9 +1251,8 @@ export default function PublicWorkspace({
                                 : "查看保存快照"}
                             </button>
                           </header>
-                          <p>{run.answer_text}</p>
+                          <p>{businessText(run.answer_text)}</p>
                           <small>
-                            记录 {run.run_id.slice(0, 8)} ·{" "}
                             {run.status === "provider_failed"
                               ? "摘要调用失败，已留存工具证据"
                               : "已保存"}
@@ -1282,7 +1270,7 @@ export default function PublicWorkspace({
               {snapshot && (
                 <Panel
                   title="保存时的证据快照"
-                  subtitle={`${snapshot.scope.date} · 前 ${snapshot.scope.cursor} 时段 · 文件版本 ${snapshot.source_hash.slice(0, 12)}；不随当前回放变化。`}
+                  subtitle={`${snapshot.scope.date} · 前 ${snapshot.scope.cursor} 时段 · 历史数据版本；不随当前回放变化。`}
                   action={
                     <button onClick={() => setSnapshot(null)}>关闭快照</button>
                   }
@@ -1317,7 +1305,7 @@ export default function PublicWorkspace({
               )}
             </>
           )}
-          <p className="public-basis-note">{meta.basis}</p>
+          <p className="public-basis-note">{businessText(meta.basis)}</p>
         </>
       )}
     </div>

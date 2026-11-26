@@ -1,3 +1,4 @@
+import { businessText } from "./presentation";
 import { useCallback, useRef, useState } from "react";
 import { ArrowUpRight, Crosshair, GitCompareArrows } from "lucide-react";
 import type { EChartsOption, LineSeriesOption } from "echarts";
@@ -441,7 +442,8 @@ export default function Forecast({
                 <div className="selection-bar">
                   <span>
                     {overlay.model_name} v{overlay.version} ·{" "}
-                    {fmt(overlay.latency_ms, 0)} ms · {overlay.trained_scope}
+                    {fmt(overlay.latency_ms, 0)} ms ·{" "}
+                    {businessText(overlay.trained_scope)}
                   </span>
                   <button onClick={onClearOverlay}>清除叠加</button>
                 </div>
@@ -493,7 +495,7 @@ export default function Forecast({
                   value={runtimeId}
                   onChange={(e) => setRuntimeId(e.target.value)}
                 >
-                  <option value="">内置 PIT 残差模型</option>
+                  <option value="">历史功率预测模型</option>
                   {runtime.data?.models
                     .filter(
                       (m) =>

@@ -137,7 +137,7 @@ def flow(store, model_id=None, prediction_id=None):
     matched = latest_observation(store, pred["id"]) if pred else None
     feedback = [f for f in ml.objects(store, "feedback") if pred and f["parent_id"] == pred["id"]]
     proposals = [p for p in ml.objects(store, "proposal") if p["payload"]["feedback_id"] in {f["id"] for f in feedback}]
-    versions = [dict(id=a["id"], source_hash=a["source_hash"], rows=a["payload"]["metadata"]["row_count"],
+    versions = [dict(id=a["id"], display_name=a["display_name"], source_hash=a["source_hash"], rows=a["payload"]["metadata"]["row_count"],
                      date_start=a["payload"]["metadata"]["date_start"], date_end=a["payload"]["metadata"]["date_end"],
                      bytes=a["payload"]["archive"]["bytes"], ingested_at=a["payload"]["ingested_at"]) for a in archives]
     return dict(current_source=catalog, monitor=ml.state(store, "monitor"), model=model, dataset=ds, job=job,

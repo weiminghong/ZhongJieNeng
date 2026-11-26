@@ -339,8 +339,12 @@ def create_app():
         return {"status": "ok", "service": "cecep-workbench-v1"}
 
     @app.get("/api/v1/public-data/catalog")
-    def public_catalog():
-        return public_data.catalog()
+    def public_catalog(store: Store=Depends(get_store)):
+        result=public_data.catalog()
+        if result.get("metadata"):
+            from .research_views import source_display_name
+            result={**result,"metadata":{**result["metadata"],"display_name":source_display_name(store,result["metadata"]["source_hash"])}}
+        return result
 
     @app.get("/api/v1/public-data/series")
     def public_series(scope: PublicScope = Depends()):

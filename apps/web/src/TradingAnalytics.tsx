@@ -1,3 +1,4 @@
+import { businessText } from "./presentation";
 import { useCallback, useEffect, useState } from "react";
 import type { EChartsOption } from "echarts";
 import type { MultiDay, Plan, Sandbox, Scope, Theme } from "./types";
@@ -219,7 +220,7 @@ export function SandboxPanel({
                 </div>
               ))}
             </div>
-            <div className="panel-note">{risk.basis}</div>
+            <div className="panel-note">{businessText(risk.basis)}</div>
             <div className="table-wrap">
               <table className="presentation-table strategy-matrix">
                 <caption>合成演示沙盘口径 · 风险分档参考规则</caption>
@@ -456,7 +457,7 @@ export function PricePanel({
             </p>
           </div>
         </div>
-        <div className="panel-note">{backtest.basis}</div>
+        <div className="panel-note">{businessText(backtest.basis)}</div>
       </Panel>
     </>
   );

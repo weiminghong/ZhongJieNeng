@@ -22,6 +22,11 @@ from .storage import Store, REGISTRY_TABLES
 router = APIRouter(prefix="/api/v1/research", tags=["research-workbench-views"])
 
 
+def source_display_name(store, source_hash):
+    oid=data_flow.revision_id(source_hash)
+    return ml.get_object(store,oid)["display_name"] if store.db.execute("SELECT 1 FROM ml_object WHERE object_id=?",(oid,)).fetchone() else "当前历史数据"
+
+
 @router.get("/flow")
 def flow(model_id: str | None = None, prediction_id: str | None = None, store: Store = Depends(store_dep)):
     return data_flow.flow(store, model_id, prediction_id)
@@ -44,7 +49,7 @@ def schema(store: Store = Depends(store_dep)):
 @router.get("/source-catalog")
 def source_catalog(source_hash: str, store: Store = Depends(store_dep)):
     meta, dates, _ = data_flow.source_version(store, source_hash)
-    metadata = dict(meta, archived_version=meta.get("archived_version",False))
+    metadata = dict(meta, display_name=source_display_name(store,source_hash), archived_version=meta.get("archived_version",False))
     return dict(available=True, checked_at=ml.now(), metadata=metadata, dates=dates, default_date=dates[-1])
 
 
@@ -89,7 +94,13 @@ def data_quality(source_hash: str | None = None):
 
 def event_history(store, limit=40):
     records = store.db.execute("SELECT subject_id,state,payload_json,created_at FROM ml_event WHERE subject_id NOT IN ('worker','monitor') ORDER BY rowid DESC LIMIT ?", (limit,)).fetchall()
-    return [dict(subject_id=r[0], state=r[1], detail=json.loads(r[2]), created_at=r[3]) for r in records]
+    result=[]
+    for r in records:
+        exists=store.db.execute("SELECT 1 FROM ml_object WHERE object_id=?",(r[0],)).fetchone()
+        known_job=store.db.execute("SELECT 1 FROM ml_job WHERE job_id=?",(r[0],)).fetchone()
+        label=ml.get_object(store,r[0])["display_name"] if exists else ml.job(store,r[0])["display_name"] if known_job else "业务操作"
+        result.append(dict(subject_id=r[0],display_name=label,state=r[1],detail=json.loads(r[2]),created_at=r[3]))
+    return result
 
 
 def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0):
@@ -104,7 +115,7 @@ def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0)
     result = []
     for r in store.db.execute("SELECT o.object_id,o.source_hash,o.payload_json,o.created_at FROM ml_prediction_registry d JOIN ml_object o ON o.object_id=d.prediction_id WHERE "+" AND ".join(clauses)+" ORDER BY o.rowid DESC LIMIT ? OFFSET ?", params):
         p = json.loads(r[2])
-        result.append(dict(id=r[0], source_hash=r[1], created_at=r[3], model_id=p["model_id"], date=p["date"],
+        result.append(dict(id=r[0], display_name=ml.get_object(store,r[0])["display_name"], model_name=ml.get_object(store,p["model_id"])["display_name"], source_hash=r[1], created_at=r[3], model_id=p["model_id"], date=p["date"],
                            scores=p["scores"], validation_only=p["validation_only"], logical_cutoff=p["logical_cutoff"], count=len(p["points"])))
     return result
 
@@ -237,6 +248,7 @@ def prediction_details(oid: str, confidence: float = Query(default=.95), store: 
     record = ml.get_object(store, oid, "prediction"); p = record["payload"]
     model = ml.get_object(store, p["model_id"], "model"); m = model["payload"]
     result = dict(prediction_id=oid, view_protocol="research-display-v1", unit=p["unit"], confidence=confidence,
+                  model_name=model["display_name"], input_name=source_display_name(store,record["source_hash"]),
                   range=None, explanation=None, source_hash=record["source_hash"], weights_hash=p["weights_hash"],
                   notice="点预测不变。经验范围来自既有调参误差，不是独立校准区间或概率保证；解释项不代表因果。")
     observation = data_flow.latest_observation(store, oid)
@@ -290,8 +302,8 @@ def export_prediction(oid: str, observation_id: str | None = None, store: Store 
     if observation and observation["parent_id"] != oid:
         raise ValueError("实际值核对记录不属于所选预测")
     selected = observation["payload"]["points"] if observation else p["points"]
-    rows = [dict(date=p["date"], slot=x["slot"], interval_start=f"{p['date']}T{x['slot']//4:02d}:{x['slot']%4*15:02d}:00+08:00",
-                 predicted=x["predicted"], actual=x["actual"], source_line=x["source_line"], model_id=p["model_id"],
-                 source_hash=r["source_hash"], observation_source_hash=observation["source_hash"] if observation else r["source_hash"],
-                 weights_hash=p["weights_hash"], unit=p["unit"], time_policy=p["time_policy"]) for x in selected]
+    model_name=ml.get_object(store,p["model_id"],"model")["display_name"]
+    actual_source="最新已核对观测" if observation else "原预测保存快照"
+    rows = [{"交易日":p["date"],"时段":f"{x['slot']//4:02d}:{x['slot']%4*15:02d}","预测价格（元/MWh）":x["predicted"],
+             "实际价格（元/MWh）":x["actual"],"预测模型":model_name,"实际值来源":actual_source} for x in selected]
     return csv_response("price-prediction-"+p["date"], list(rows[0]), rows)

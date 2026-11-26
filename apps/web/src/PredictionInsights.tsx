@@ -6,6 +6,7 @@ import type { Theme } from "./types";
 import { fmt, stamp, useResource } from "./api";
 import { Status } from "./components";
 import Chart, { baseOption, color } from "./Chart";
+import { recordLabel, businessText } from "./presentation";
 
 export type Observation = {
   prediction_id: string;
@@ -16,6 +17,8 @@ export type Observation = {
   observation_source_hash: string;
 };
 type Details = {
+  model_name?: string;
+  input_name?: string;
   observation: Entity<Observation> | null;
   notice: string;
   range: null | {
@@ -137,7 +140,7 @@ export default function PredictionInsights({
       <Status loading={details.loading} error={details.error} />
       <p className="research-help">
         {observation
-          ? `正在显示 ${stamp(observation.payload.checked_at)} 核对的实际值；观测版本 ${observation.source_hash.slice(0, 16)}，相对原快照 ${observation.payload.changed_from_snapshot} 个实际值变化。`
+          ? `正在显示 ${stamp(observation.payload.checked_at)} 核对的实际值，相对原快照 ${observation.payload.changed_from_snapshot} 个实际值变化。`
           : "正在显示原预测保存的实际值快照；旧记录不被新数据覆盖。"}{" "}
         预测曲线始终使用原来保存的模型输出。
       </p>
@@ -265,7 +268,7 @@ export default function PredictionInsights({
             </>
           ) : (
             <p className="research-help">
-              {d?.explanation_unavailable || "正在核对真实模型项…"}
+              {businessText(d?.explanation_unavailable || "正在核对预测依据…")}
             </p>
           )}
         </section>
@@ -273,23 +276,33 @@ export default function PredictionInsights({
           <h3>可追溯的预测记录</h3>
           <dl className="research-facts">
             <div>
-              <dt>预测ID</dt>
-              <dd>{record.id}</dd>
+              <dt>预测记录</dt>
+              <dd>{recordLabel(record, "已保存预测")}</dd>
             </div>
             <div>
-              <dt>调用模型</dt>
-              <dd>{record.payload.model_id}</dd>
+              <dt>预测模型</dt>
+              <dd>{d?.model_name || "所选预测模型"}</dd>
             </div>
             <div>
-              <dt>权重SHA256</dt>
-              <dd>{record.payload.weights_hash}</dd>
+              <dt>输入数据</dt>
+              <dd>{d?.input_name || "已保存的历史数据"}</dd>
             </div>
             <div>
-              <dt>输入版本</dt>
-              <dd>{record.source_hash}</dd>
+              <dt>预测日期</dt>
+              <dd>{record.payload.date}</dd>
+            </div>
+            <div>
+              <dt>数据范围</dt>
+              <dd>当日96个15分钟时段</dd>
+            </div>
+            <div>
+              <dt>原始实际值</dt>
+              <dd>{record.payload.scores.n} 个有效时段</dd>
             </div>
           </dl>
-          <p className="research-help">{d?.notice}</p>
+          <p className="research-help">
+            点预测保持不变，历史误差范围仅作研究参考。
+          </p>
         </section>
       </div>
     </div>

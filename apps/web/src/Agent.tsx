@@ -1,3 +1,9 @@
+import {
+  businessText,
+  analysisLabel,
+  stationLabel,
+  toolLabel,
+} from "./presentation";
 import { useEffect, useRef, useState } from "react";
 import {
   Send,
@@ -67,7 +73,8 @@ export default function Agent({
       });
       if (currentContext.current === capturedContext) setAnswer(data);
     } catch (e) {
-      if (currentContext.current === capturedContext) setError((e as Error).message);
+      if (currentContext.current === capturedContext)
+        setError((e as Error).message);
     } finally {
       setBusy(false);
       setRevision((v) => v + 1);
@@ -82,7 +89,7 @@ export default function Agent({
         </div>
         <div>
           <h2>双通道智能体助手</h2>
-          <p>结构化数据走 SQL 与确定性计算，业务知识走 FTS5 + TF-IDF 检索。</p>
+          <p>结合原始数据、计算结果与业务资料，分析当前问题。</p>
         </div>
         <a className="button" href="/settings">
           <Settings2 size={15} />
@@ -90,7 +97,7 @@ export default function Agent({
         </a>
       </div>
       <div className="agent-context">
-        <span className="badge info">{scope.station_id}</span>
+        <span className="badge info">{stationLabel(scope.station_id)}</span>
         <span>{scope.date}</span>
         <span>
           {scope.mode === "replay"
@@ -109,7 +116,7 @@ export default function Agent({
         <BookOpen size={16} />
         <p>
           {llmMode === "deterministic_tools_only"
-            ? "未接外部大模型 · deterministic_tools_only。由真实工具与知识证据组装结论。"
+            ? "未启用外部摘要服务，当前结论由业务计算和已有资料组成。"
             : "已配置 OpenAI 兼容摘要器，输出仅允许选择既有证据，禁止自由生成数值。"}
         </p>
       </div>
@@ -119,12 +126,12 @@ export default function Agent({
           <strong>
             {llmMode === "deterministic_tools_only" ? "确定性工具" : "证据摘要"}
           </strong>
-          <small>{llmMode}</small>
+          <small>{analysisLabel(llmMode)}</small>
         </div>
         <div>
           <span>本次工具调用</span>
           <strong>{shown?.tool_calls.length ?? "—"}</strong>
-          <small>SQL 计算与知识检索</small>
+          <small>业务计算与知识查询</small>
         </div>
         <div>
           <span>本次证据引用</span>
@@ -151,8 +158,14 @@ export default function Agent({
         <>
           <div className="quick-insights" aria-label="快捷业务洞察">
             {[
-              ["调用小模型实时预测", "调用小模型实时预测，比较线上预测与实测，展示96点曲线。"],
-              ["云量+30%场景推演", "云量+30%场景推演，调用小模型重算预测并联动收益沙盘。"],
+              [
+                "调用小模型实时预测",
+                "调用小模型实时预测，比较线上预测与实测，展示96点曲线。",
+              ],
+              [
+                "云量+30%场景推演",
+                "云量+30%场景推演，调用小模型重算预测并联动收益沙盘。",
+              ],
               [
                 "今日偏差归因",
                 "请基于今日可见实测与日前预测，定位超阈偏差时段，分析天气及运行事件线索，并列出证据与不确定性。",
@@ -230,64 +243,56 @@ export default function Agent({
                     : "证据检查失败"}
                 </span>
               </header>
-              <p className="answer-text">{shown.answer_markdown}</p>
-              <AgentArtifacts artifacts={shown.artifacts || []} theme={theme} onOverlay={onOverlay} />
+              <p className="answer-text">
+                {businessText(shown.answer_markdown)}
+              </p>
+              <AgentArtifacts
+                artifacts={shown.artifacts || []}
+                theme={theme}
+                onOverlay={onOverlay}
+              />
               <div className="citation-list">
                 {shown.citations.map((c) => (
                   <a
                     key={c.citation_id}
                     href={"#tool-" + (c.tool_name || "search_knowledge_rag")}
                     className="badge"
-                    title={c.title || c.tool_name}
+                    title={businessText(c.title || toolLabel(c.tool_name))}
                   >
                     {c.kind === "rag" ? (
                       <BookOpen size={12} />
                     ) : (
                       <Wrench size={12} />
                     )}
-                    {c.title || c.tool_name}
+                    {businessText(c.title || toolLabel(c.tool_name))}
                   </a>
                 ))}
               </div>
-              <div className="tool-chain">
-                <h3>可折叠执行证据</h3>
+              <section className="tool-chain">
+                <h3>本次分析使用的业务计算</h3>
                 {shown.tool_calls.map((c, i) => (
-                  <details key={i} id={"tool-" + c.tool_name}>
-                    <summary>
-                      {c.tool_name === "search_knowledge_rag" ? (
-                        <BookOpen size={15} />
-                      ) : (
-                        <Wrench size={15} />
-                      )}
-                      <span>
-                        通道{" "}
-                        {c.tool_name === "search_knowledge_rag"
-                          ? "2 · RAG 混合召回"
-                          : "1 · 数据库 / 确定性引擎"}
-                      </span>
-                      <strong>{c.tool_name}</strong>
-                    </summary>
-                    <div className="tool-input">
-                      输入上下文<pre>{JSON.stringify(c.input, null, 2)}</pre>
-                    </div>
-                    <pre>{JSON.stringify(c.output, null, 2)}</pre>
-                  </details>
+                  <p key={i}>{toolLabel(c.tool_name)} · 结果已保留</p>
                 ))}
-              </div>
+              </section>
               <footer>
                 <span className="muted">
-                  {shown.llm_mode} · {Math.round(shown.latency_ms)} ms · 已落库
+                  {analysisLabel(shown.llm_mode)} ·{" "}
+                  {Math.round(shown.latency_ms)} ms · 已保存
                 </span>
-                <button onClick={() => onDraft(shown.answer_markdown)}>
+                <button
+                  onClick={() => onDraft(businessText(shown.answer_markdown))}
+                >
                   <FileCheck2 size={15} />
-                  送入 RSI 审核草稿
+                  送入人工复核草稿
                 </button>
               </footer>
             </article>
           )}
         </>
       )}
-      {view === "proactive" && <ProactiveBriefs scope={scope} onDraft={onDraft} />}
+      {view === "proactive" && (
+        <ProactiveBriefs scope={scope} onDraft={onDraft} />
+      )}
       {view === "history" && (
         <section className="agent-history">
           <h3>
@@ -308,8 +313,8 @@ export default function Agent({
                 setView("query");
               }}
             >
-              <span>{h.question}</span>
-              <small>{h.llm_mode}</small>
+              <span>{businessText(h.question)}</span>
+              <small>{analysisLabel(h.llm_mode)}</small>
             </button>
           ))}
         </section>

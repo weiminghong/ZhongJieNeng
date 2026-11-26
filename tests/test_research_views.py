@@ -79,7 +79,9 @@ class ResearchViewTests(unittest.TestCase):
             response = client.get(f"/api/v1/research/predictions/{p['id']}/export")
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.content.decode("utf-8-sig").splitlines()), 97)
-            self.assertIn("CNY/MWh", response.text)
+            self.assertIn("元/MWh", response.text)
+            self.assertNotIn("model_id",response.text)
+            self.assertNotIn(p["id"],response.text)
             self.assertEqual(client.get("/api/v1/research/summary").status_code, 200)
         self.assertEqual(self.store.db.execute("SELECT count(*) FROM ml_object").fetchone()[0], before)
 
