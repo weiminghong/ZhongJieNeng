@@ -424,12 +424,22 @@ def compare(store, model_id, partition):
         report = p["report"][partition]
         rows, seen, predictions_by_name = [], {}, {}
         data = None
-        candidates = [
-            m
-            for m in ml.objects(store, "model")
-            if m["payload"]["dataset_id"] == p["dataset_id"]
-            and m["source_hash"] == ref["source_hash"]
-        ]
+        def comparable(m):
+            other = m["payload"]
+            if m["source_hash"] != ref["source_hash"] or other["task"] != p["task"]:
+                return False
+            if other["dataset_id"] == p["dataset_id"]:
+                return True
+            controlled = "controlled_optimization" in (p["algorithm"], other["algorithm"])
+            return (
+                controlled
+                and other["splits"] == p["splits"]
+                and other["unit"] == p["unit"]
+                and other["policy"].get("information_budget", "d2_history")
+                == p["policy"].get("information_budget", "d2_history")
+            )
+
+        candidates = [m for m in ml.objects(store, "model") if comparable(m)]
         candidates.sort(
             key=lambda m: (m["id"] != model_id, m["state"] != "research_active")
         )
@@ -442,6 +452,11 @@ def compare(store, model_id, partition):
             ):
                 continue
             values = ml.read_npz(mp["evaluation_predictions"])
+            if data is not None and any(
+                not np.array_equal(values[f"{partition}_{k}"], data[k])
+                for k in ("y", "days", "slots")
+            ):
+                continue
             algorithm = mp["algorithm"]
             predicted = values[f"{partition}_{algorithm}"]
             identity = (algorithm, hashlib.sha256(predicted.tobytes()).hexdigest())
@@ -495,7 +510,7 @@ def compare(store, model_id, partition):
         expected=expected,
         label_coverage=report["rows"] / expected,
         time_policy="historical_assumed",
-        unit="CNY/MWh",
+        unit=p["unit"],
         notice="按同一数据版本、分区和标签掩码比较；重复输出折叠为同一行。最终审计只显示已冻结候选的既有结果。",
     )
 

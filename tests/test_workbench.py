@@ -90,9 +90,9 @@ class WorkbenchTests(unittest.TestCase):
                 ).fetchone()[0],
                 checksum,
             )
-            self.assertEqual(old.inspect()["schema_version"], 7)
+            self.assertEqual(old.inspect()["schema_version"], 8)
             self.assertEqual(
-                len(old.db.execute("SELECT * FROM schema_migration").fetchall()), 7
+                len(old.db.execute("SELECT * FROM schema_migration").fetchall()), 8
             )
             old.initialize()
 
@@ -388,7 +388,7 @@ class WorkbenchTests(unittest.TestCase):
     def test_legacy_storage_routes(self):
         with TestClient(create_app()) as client:
             self.assertEqual(
-                client.get("/api/storage/health").json()["schema_version"], 7
+                client.get("/api/storage/health").json()["schema_version"], 8
             )
             common = {"cutoff": "2026-11-20T14:00:00+08:00", "demo": "1"}
             self.assertEqual(

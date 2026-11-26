@@ -38,6 +38,10 @@ import ModelSettings from "./ModelSettings";
 import PredictionDetails from "./WorkbenchPredictionDetails";
 import ReviewHistory from "./WorkbenchReviewHistory";
 import OptimizationEvidence from "./OptimizationEvidence";
+import DataOverview, { type SourceMetadata } from "./WorkbenchDataOverview";
+import IntervalDetails from "./WorkbenchIntervalDetails";
+import AgentEvidence, { type Citation, type AnalysisTool } from "./WorkbenchAgentEvidence";
+import OptimizationTraining from "./WorkbenchOptimizationTraining";
 
 type Source = {
   key: string;
@@ -70,6 +74,8 @@ type Model = {
   can_approve: boolean;
   can_rollback: boolean;
   can_final_audit?: boolean;
+  can_guard_power?: boolean;
+  retrain_parameter_kind?: "regularization" | "optimization_recipe";
   created_at: string | null;
   scope_label: string;
   score: Score | null;
@@ -140,6 +146,7 @@ type Context = {
     detail: { reason?: string; stage?: string; error?: string };
   }[];
   flow: { name: string; state: string; detail: string }[];
+  metadata?: SourceMetadata;
   related?: {
     name: string;
     date: string;
@@ -227,6 +234,7 @@ export default function Workbench() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [answerVersion, setAnswerVersion] = useState("");
+  const [analysisEvidence, setAnalysisEvidence] = useState<{ citations: Citation[]; tools: AnalysisTool[]; notice: string }>({ citations: [], tools: [], notice: "" });
   const selectedCase =
     c?.cases.find((x) => x.slot === s.slot) ||
     (s.slot === null ? c?.cases[0] : undefined);
@@ -243,6 +251,8 @@ export default function Workbench() {
   ].join(":");
   const current = useRef(scopeKey);
   current.current = scopeKey;
+  const currentSlot = useRef(s.slot);
+  currentSlot.current = s.slot;
   const reasonKey =
     scopeKey +
     ":" +
@@ -297,6 +307,8 @@ export default function Workbench() {
     localStorage.setItem("cecep-theme", theme);
   }, [theme]);
   const selectedModel = c?.models.find((m) => m.id === s.model);
+  const usesOptimizationRecipe = selectedModel?.retrain_parameter_kind === "optimization_recipe" || (selectedModel?.trained === true && selectedModel.alpha === null && c?.source.domain === "market");
+  const canGuardPower = selectedModel?.can_guard_power ?? (selectedModel?.trained === true && selectedModel.alpha !== null);
   const selectedRetrainAlpha =
     retrainAlpha === selectedModel?.alpha
       ? selectedModel?.alpha === 1
@@ -334,6 +346,7 @@ export default function Workbench() {
       return;
     }
     const captured = scopeKey;
+    const capturedSlot = s.slot;
     setBusy(action);
     setError("");
     setMessage("");
@@ -358,6 +371,7 @@ export default function Workbench() {
         },
       );
       if (current.current !== captured) return;
+      if (action === "analyze" && currentSlot.current !== capturedSlot) return;
       if (action === "predict") {
         const id = String(r.id || "");
         if (id)
@@ -368,6 +382,11 @@ export default function Workbench() {
         change({ type: "tab", tab: "forecast" });
       }
       if (action === "analyze") {
+        setAnalysisEvidence({
+          citations: Array.isArray(r.citations) ? r.citations as Citation[] : [],
+          tools: Array.isArray(r.tools) ? r.tools as AnalysisTool[] : [],
+          notice: String(r.knowledge_notice || ""),
+        });
         setAnswerVersion(String(r.context_version || c?.context_version || ""));
         setAnswer(
           businessText(
@@ -783,6 +802,22 @@ export default function Workbench() {
                                 </button>
                               </div>
                             </div>
+                            <div className="unified-overview-evidence">
+                            <IntervalDetails
+                              points={c.points}
+                              slot={s.slot}
+                              unit={c.source.unit}
+                              sourceName={c.source.name}
+                              modelName={selectedModel?.name || ""}
+                              recordName={c.records.find((r) => r.id === s.record)?.name || ""}
+                              basis={s.basis}
+                              select={(slot) => change({ type: "slot", slot })}
+                              navigate={(tab) => change({ type: "tab", tab })}
+                              analyze={(point) => {
+                                setQuestion(`请分析 ${c.date} ${time(point.start)} 这一时段的${c.source.task_name}，说明预测与实际的差异、已有证据和需要人工核对的事项。`);
+                                change({ type: "tab", tab: "agent" });
+                              }}
+                            />
                             <Panel title="业务进展">
                               {c.flow.map((x) => (
                                 <div className="unified-flow-step" key={x.name}>
@@ -798,10 +833,23 @@ export default function Workbench() {
                                 </div>
                               ))}
                             </Panel>
+                            </div>
                           </div>
                         </>
                       )}
                       {s.tab === "raw" && (
+                        <>
+                        <DataOverview
+                          key={s.source + ":" + s.task}
+                          source={c.source}
+                          metadata={c.metadata}
+                          points={c.points}
+                          date={c.date}
+                          model={s.model}
+                          record={s.record}
+                          basis={s.basis}
+                          revision={`${revision}:${c.context_version}`}
+                        />
                         <Panel
                           title="当前范围的分时数据"
                           subtitle="数据范围、日期和模型均使用上方同一选择。选择时段后可继续预测分析或复核。"
@@ -819,6 +867,7 @@ export default function Workbench() {
                             <ArrowRight size={14} />
                           </button>
                         </Panel>
+                        </>
                       )}
                       {s.tab === "forecast" && (
                         <>
@@ -1028,6 +1077,14 @@ export default function Workbench() {
                               </p>
                             )}
                           </Panel>
+                          {c.source.domain === "market" && <OptimizationTraining
+                            key={s.task}
+                            task={s.task}
+                            revision={revision}
+                            canSubmit={!busy && !!actor.trim() && !!reason.trim() && c.source.can_train}
+                            submit={(parameters) => void act("train", parameters, "优化候选训练已提交，请在运行监测核对实际完成情况")}
+                            monitor={() => change({ type: "tab", tab: "monitor" })}
+                          />}
                           {c.source.task.startsWith("pv_") && (
                             <Panel
                               title="训练期出力约束修正"
@@ -1037,7 +1094,7 @@ export default function Workbench() {
                               <button
                                 disabled={
                                   !!busy ||
-                                  !selectedModel?.trained ||
+                                  !canGuardPower ||
                                   !actor.trim() ||
                                   !reason.trim()
                                 }
@@ -1051,6 +1108,7 @@ export default function Workbench() {
                               >
                                 为所选版本建立出力约束
                               </button>
+                              {selectedModel?.trained && !canGuardPower && <p className="research-help">所选模型不适用线性模型出力约束，请使用它自己的受控训练方案生成新版本。</p>}
                             </Panel>
                           )}
                           <Panel title="当前范围的模型">
@@ -1203,6 +1261,7 @@ export default function Workbench() {
                                   .map((x) => (
                                     <button
                                       key={x.id}
+                                      aria-pressed={selectedCase?.id === x.id}
                                       className={
                                         selectedCase?.id === x.id
                                           ? "is-selected"
@@ -1288,6 +1347,13 @@ export default function Workbench() {
                                   >
                                     确认并保存复核
                                   </button>
+                                  {selectedCase.feedback_id && selectedCase.state === "confirmed" && <div className="research-filters">
+                                    <button
+                                      disabled={!!busy || !hasConfirmed || !actor.trim() || !reason.trim()}
+                                      onClick={() => void act("ingest_case", { confirmed: true, feedback_id: selectedCase.feedback_id, case_id: selectedCase.id, slot: selectedCase.slot }, "已将确认复核沉淀为当前来源与任务的业务案例")}
+                                    >沉淀为业务案例</button>
+                                    <p className="research-help">新确认意见会自动沉淀；已有意见可补充收录，需与当前观测一致。</p>
+                                  </div>}
                                   {c.source.domain === "market" &&
                                     selectedCase.feedback_id && (
                                       <div className="research-filters">
@@ -1309,20 +1375,7 @@ export default function Workbench() {
                                         >
                                           确认复核
                                         </button>
-                                        <label>
-                                          重训参数
-                                          <select
-                                            value={alpha}
-                                            onChange={(e) =>
-                                              setAlpha(Number(e.target.value))
-                                            }
-                                          >
-                                            {[0.1, 1, 10, 100].map((v) => (
-                                              <option key={v}>{v}</option>
-                                            ))}
-                                          </select>
-                                        </label>
-                                        <label>
+                                        {usesOptimizationRecipe ? <p className="research-help">所选候选沿用已冻结的优化流程重训，不使用线性模型正则参数，也不会把意见改成新标签。</p> : <label>
                                           重训正则强度
                                           <select
                                             aria-label="重训正则强度"
@@ -1344,7 +1397,7 @@ export default function Workbench() {
                                                 </option>
                                               ))}
                                           </select>
-                                        </label>
+                                        </label>}
                                         <button
                                           disabled={
                                             !!busy ||
@@ -1356,7 +1409,7 @@ export default function Workbench() {
                                               {
                                                 feedback_id:
                                                   selectedCase.feedback_id,
-                                                alpha: selectedRetrainAlpha,
+                                                alpha: usesOptimizationRecipe ? 1 : selectedRetrainAlpha,
                                                 key: crypto.randomUUID(),
                                               },
                                               "已按复核提案提交重训",
@@ -1701,6 +1754,7 @@ export default function Workbench() {
                         </Panel>
                       )}
                       {s.tab === "agent" && (
+                        <>
                         <Panel
                           title="分析当前范围"
                           subtitle={analysisLabel(
@@ -1710,6 +1764,7 @@ export default function Workbench() {
                           <p>
                             {c.source.name} · {c.date} · {c.source.task_name}
                           </p>
+                          <p className="research-help">{s.slot !== null ? `重点时段：${c.points.find((p) => p.slot === s.slot) ? time(c.points.find((p) => p.slot === s.slot)!.start) : "当前范围无此时段"}。分析同时保留当日背景。` : "当前分析当日范围；可在首页选择一个时段后继续。"}</p>
                           <label className="unified-question">
                             业务问题
                             <textarea
@@ -1732,7 +1787,7 @@ export default function Workbench() {
                               !!busy || !question.trim() || !actor.trim()
                             }
                             onClick={() =>
-                              void act("analyze", {}, "分析结果已保存")
+                              void act("analyze", s.slot === null ? {} : { slot: s.slot }, "分析结果已保存")
                             }
                           >
                             分析当前来源的数据
@@ -1745,6 +1800,16 @@ export default function Workbench() {
                             </p>
                           )}
                         </Panel>
+                        <AgentEvidence
+                          key={[s.source, s.task, s.date, s.mode, s.until, s.basis].join(":")}
+                          selection={s}
+                          revision={`${revision}:${c.context_version}`}
+                          citations={analysisEvidence.citations}
+                          tools={analysisEvidence.tools}
+                          notice={analysisEvidence.notice}
+                          showAnalysis={!!answer && answerVersion === c.context_version}
+                        />
+                        </>
                       )}
                     </>
                   )}

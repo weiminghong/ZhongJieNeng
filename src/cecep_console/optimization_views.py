@@ -88,6 +88,14 @@ def summary(task_id: str, store: Store = Depends(store_dep)):
                 id=obj["id"],
                 name=title(p),
                 family=family,
+                candidate_eligible=(family != "direction" and not p["contract"].get("conditional_upstream_required")
+                                    and task_id in {"pv_day_ahead_reference", "prebid_spread_reference", "intraday_spread_reference"}),
+                blocked_reason=(
+                    "方向任务保留独立研究证据，尚未接入幅度候选的通用推理与审批。"
+                    if family == "direction" else
+                    "目标日上游预测的发布时间尚未核验，不能作为正式申报前候选。"
+                    if p["contract"].get("conditional_upstream_required") else ""
+                ),
                 created_at=obj["created_at"],
                 unit="%" if family == "direction" else spec["display_unit"],
                 rows=s["rows"],

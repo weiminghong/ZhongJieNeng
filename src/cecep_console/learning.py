@@ -65,6 +65,30 @@ POLICY = dict(
 )
 
 
+def is_trained_algorithm(name):
+    return name in {"ridge", "controlled_optimization"}
+
+
+def validate_payload(payload):
+    a = read_npz(payload["weights"])
+    if payload["algorithm"] == "controlled_optimization":
+        from .optimized_models import validate
+        validate(a, len(payload["policy"]["features"]))
+        meta = json.loads(a["metadata"].astype(np.uint8).tobytes())
+        if meta["task"] != payload["task"] or digest(dict(recipe=meta["recipe"], blend=meta["blend"])) != payload["recipe_hash"]:
+            raise ValueError("优化权重与模型任务或方案不一致")
+        return a
+    return validate_model(a, len(payload["policy"]["features"]))
+
+
+def predict_payload(payload, data):
+    a = validate_payload(payload)
+    if payload["algorithm"] == "controlled_optimization":
+        from .optimized_models import predict
+        return predict(a, data)
+    return bounded_outputs(a, data, payload["task"], payload.get("output_bounds"))[payload["algorithm"]]
+
+
 def root():
     p = Path(
         os.environ.get(
@@ -174,6 +198,7 @@ def get_object(store, oid, kind=None):
     if family:
         prefix = {
             "ridge": "电价预测模型",
+            "controlled_optimization": "受控优化预测模型",
             "seasonal_naive_d2": "两日前同期基线",
             "seasonal_naive_d7": "七日前同期基线",
             "train_weekday_slot_median": "历史同期基线",
@@ -189,6 +214,8 @@ def get_object(store, oid, kind=None):
             prefix = "近期已知观测基线"
         if family == "zero_spread":
             prefix = "零价差参考"
+        if family == "controlled_optimization" and payload.get("selected_recipe", {}).get("kind") == "reference":
+            prefix = "优化筛选后保留的参考方案"
     if family == "ridge" and payload.get("output_bounds"):
         prefix = tasks.spec(payload["task"])["name"] + "（出力约束修正）"
     label = (
@@ -647,6 +674,9 @@ def execute(store, jid):
     ds = get_object(store, j["dataset_id"], "dataset")
     policy = ds["payload"]["policy"]
     if policy.get("engine"):
+        if policy["engine"] == "controlled_candidate_v1":
+            from .optimized_models import execute as candidate
+            return candidate(store, jid, policy)
         from .optimization_bridge import execute as optimize
 
         return optimize(store, jid, policy)
@@ -909,7 +939,7 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
     from .data_flow import archive_current
 
     archive_current(store, meta["source_hash"])
-    a = validate_model(read_npz(p["weights"]), len(p["policy"]["features"]))
+    a = validate_payload(p)
     x = np.array(
         [
             (
@@ -921,9 +951,16 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
         ],
         dtype=float,
     )
+    if p["algorithm"] == "controlled_optimization":
+        from .optimized_models import input_data
+        x = input_data(days, day, task, p["policy"])["x"]
     data = dict(x=x, days=np.array([day] * len(grid)), slots=np.array(grid))
-    raw_pred = outputs(a, data, task)[p["algorithm"]]
-    pred = bounded_outputs(a, data, task, p.get("output_bounds"))[p["algorithm"]]
+    if p["algorithm"] == "controlled_optimization":
+        from .optimized_models import predict
+        raw_pred = pred = predict(a, data)
+    else:
+        raw_pred = outputs(a, data, task)[p["algorithm"]]
+        pred = bounded_outputs(a, data, task, p.get("output_bounds"))[p["algorithm"]]
     if not np.isfinite(pred).all():
         raise ValueError("推理出现非有限值")
     points = [
@@ -962,6 +999,11 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
             np.array([r["predicted"] for r in paired]),
         ),
     )
+    if p["algorithm"] == "controlled_optimization":
+        payload.update(independent_evidence=False, inference_kind="fixed_split_research_inference",
+                       optimization_result_id=p["optimization_result_id"], information_budget=p["policy"]["information_budget"])
+        if p["policy"].get("early_observations"):
+            payload["latest_feature_day"]=cutoff.isoformat()
     if tasks.spec(task)["intraday"]:
         for point in points:
             issue = datetime.fromisoformat(day + "T00:00:00+08:00") + timedelta(
@@ -1118,8 +1160,11 @@ def proposal(store, fid, alpha, actor, reason):
         raise ValueError(
             "反馈已涉及提升或审计窗口，不能用同一窗口再次选参；需另行批准新的未来评估合同"
         )
-    if alpha not in POLICY["alpha_choices"] or alpha == m["payload"]["alpha"]:
+    controlled = m["payload"]["algorithm"] == "controlled_optimization"
+    if alpha not in POLICY["alpha_choices"] or (not controlled and alpha == m["payload"]["alpha"]):
         raise ValueError("选择一个不同的、合同允许的正则参数")
+    if controlled and alpha != m["payload"]["alpha"]:
+        raise ValueError("优化方案重训保持冻结配置，不用正则参数冒充树模型调参")
     oid = add_object(
         store,
         "proposal",
@@ -1130,7 +1175,7 @@ def proposal(store, fid, alpha, actor, reason):
             alpha=alpha,
             actor=actor,
             reason=reason,
-            change="parameter_only",
+            change="rerun_frozen_optimization" if controlled else "parameter_only",
             incorporates_labels=False,
             output_recipe=m["payload"].get("output_bounds", {}).get("kind"),
         ),
@@ -1141,7 +1186,7 @@ def proposal(store, fid, alpha, actor, reason):
         store,
         oid,
         "ready",
-        note="沿用原训练数据；复核调参集后重新训练，提升窗口保持隔离",
+        note="复核触发冻结方案重跑；不追加标签或承诺提升" if controlled else "沿用原训练数据；复核调参集后重新训练，提升窗口保持隔离",
     )
     store.db.commit()
     return get_object(store, oid)
@@ -1180,7 +1225,7 @@ def release(store, oid, action, actor, reason):
                 raise ValueError("已拒绝版本不能作为回滚目标")
             if current["detail"].get("previous_model_id") != oid:
                 raise ValueError("只能回滚到上一实际主版本")
-            validate_model(read_npz(p["weights"]), dim)
+            validate_payload(p)
             event(
                 store,
                 "release:" + task,
@@ -1199,7 +1244,7 @@ def release(store, oid, action, actor, reason):
                 raise ValueError("该模型状态不可审批")
             if previous == oid:
                 raise ValueError("已经是当前主版本")
-            validate_model(read_npz(p["weights"]), dim)
+            validate_payload(p)
             if not previous:
                 if p["algorithm"] != p["policy"].get(
                     "initial_baseline", "seasonal_naive_d2"
@@ -1208,25 +1253,25 @@ def release(store, oid, action, actor, reason):
                 gate = dict(initial_baseline=True)
             else:
                 old = get_object(store, previous, "model")
-                if (
-                    old["source_hash"] != m["source_hash"]
-                    or old["payload"]["dataset_id"] != p["dataset_id"]
-                ):
+                controlled = "controlled_optimization" in (p["algorithm"], old["payload"]["algorithm"])
+                if old["source_hash"] != m["source_hash"] or (
+                    not controlled and old["payload"]["dataset_id"] != p["dataset_id"]
+                ) or (controlled and old["payload"]["splits"] != p["splits"]):
                     raise ValueError("版本数据或评估合同不匹配，不能直接审批")
-                if p["algorithm"] != "ridge":
-                    raise ValueError("升级候选必须是训练得到的 Ridge")
+                if controlled and p["policy"].get("information_budget", "d2_history") != old["payload"]["policy"].get("information_budget", "d2_history"):
+                    raise ValueError("版本使用的信息条件不同，需同条件对照，不能直接审批")
+                if not is_trained_algorithm(p["algorithm"]):
+                    raise ValueError("升级候选必须是真实训练模型")
                 arrays = read_npz(p["arrays"])
                 data = {
                     k: arrays["promotion_" + k] for k in ("x", "y", "days", "slots")
                 }
-                aa = validate_model(read_npz(p["weights"]), dim)
-                bb = validate_model(read_npz(old["payload"]["weights"]), dim)
-                candidate = bounded_outputs(aa, data, task, p.get("output_bounds"))[
-                    p["algorithm"]
-                ]
-                incumbent = bounded_outputs(
-                    bb, data, task, old["payload"].get("output_bounds")
-                )[old["payload"]["algorithm"]]
+                old_arrays = read_npz(old["payload"]["arrays"])
+                old_data = {k: old_arrays["promotion_"+k] for k in ("x", "y", "days", "slots")}
+                if any(not np.array_equal(data[k], old_data[k]) for k in ("y", "days", "slots")):
+                    raise ValueError("版本比较的日期、时段或标签不一致，不能直接审批")
+                candidate = predict_payload(p, data)
+                incumbent = predict_payload(old["payload"], old_data)
                 gate = paired_ci(
                     data["days"], abs(candidate - data["y"]), abs(incumbent - data["y"])
                 )
@@ -1239,6 +1284,15 @@ def release(store, oid, action, actor, reason):
                     raise ValueError(
                         "候选未通过预先冻结的 MAE 置信区间与 RMSE 门槛；保留现任主版本"
                     )
+                if p["algorithm"] == "controlled_optimization":
+                    reference = p["policy"]["initial_baseline"]
+                    report = p["report"]["promotion"]
+                    ci = report["comparisons"][reference]
+                    if ci["upper95"] is None or ci["upper95"] >= 0 or report["scores"][p["algorithm"]]["rmse"] > report["scores"][reference]["rmse"]:
+                        raise ValueError("优化候选尚未同时胜过合同参考；保留影子研究状态")
+                    gate["reference_comparison"] = ci
+                    gate["independent_evidence"] = False
+                    gate["notice"] = "已使用历史窗口的研究比较，未恢复独立检验资格"
             event(
                 store,
                 "release:" + task,

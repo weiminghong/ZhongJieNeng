@@ -65,7 +65,7 @@ class RuntimeTests(unittest.TestCase):
             old.append("data_source", sentinel); old.db.commit(); old.initialize()
             self.assertEqual(dict(old.db.execute("SELECT * FROM data_source").fetchone()), sentinel)
             self.assertEqual([r[0] for r in old.db.execute("SELECT checksum FROM schema_migration WHERE version<3 ORDER BY version")], checksums)
-            self.assertEqual(old.inspect()["schema_version"], 7)
+            self.assertEqual(old.inspect()["schema_version"], 8)
             self.assertEqual(old.inspect()["foreign_key_errors"], [])
             old.initialize()
 

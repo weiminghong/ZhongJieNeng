@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import time
 from urllib.request import Request, urlopen
 from uuid import uuid4
@@ -21,6 +22,10 @@ import paramiko
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE = "/home/priv/ZhongJieNeng"
 BRANCH = "codex/agent-workbench"
+EXPECTED_SCHEMA = max(
+    int(path.name.split("_", 1)[0])
+    for path in (ROOT / "src/cecep_console/storage_sql").glob("[0-9]*_*.sql")
+)
 
 
 def sha(path):
@@ -438,7 +443,11 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert quality["metadata"]["row_count"] == 71520
         receipt["research_views"] = {"source_rows": quality["metadata"]["row_count"], "prediction_records": history["total"], "readonly_views": True}
         schema = api("/api/v1/research/schema")
-        assert schema["version"] == 7 and len(schema["tables"]) == 15 and not schema["foreign_key_errors"]
+        sys.path.insert(0, str(ROOT / "src"))
+        from cecep_console.storage import REGISTRY_TABLES
+        assert schema["version"] == EXPECTED_SCHEMA
+        assert {t["name"] for t in schema["tables"]} == REGISTRY_TABLES
+        assert not schema["foreign_key_errors"]
         receipt["typed_registry"] = {t["name"]:t["rows"] for t in schema["tables"]}
         if research["active_model"]:
             reference_id = research["active_model"]["id"]
@@ -462,7 +471,7 @@ print(json.dumps({'uploaded_files':len(files),'bytes':sum(f['bytes'] for f in fi
         assert (
             receipt["db_after"]["integrity"] == "ok"
             and not receipt["db_after"]["foreign_key_errors"]
-            and receipt["db_after"]["schema_version"] == 7
+            and receipt["db_after"]["schema_version"] == EXPECTED_SCHEMA
         )
         receipt["db_write_verification"] = json.loads(
             python(

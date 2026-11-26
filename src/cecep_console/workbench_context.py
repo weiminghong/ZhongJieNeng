@@ -24,6 +24,7 @@ from .rsi import model_states, rsi_overview, review_feedback, approve_model
 from .model_runtime import list_runtime_models, builtin_model, run_model_inference
 from .model_settings import load_settings
 from . import task_catalog as tasks
+from . import workbench_knowledge as knowledge
 
 router = APIRouter(prefix="/api/v1/workspace", tags=["unified-workbench"])
 
@@ -219,7 +220,8 @@ def models(store, s):
                     id=m["id"],
                     name=m["display_name"],
                     state=m["state"],
-                    trained=p["algorithm"] == "ridge"
+                    trained=ml.is_trained_algorithm(p["algorithm"])
+                    and p.get("selected_recipe", {}).get("kind") != "reference"
                     and ml.job(store, p["job_id"])["state"] == "succeeded",
                     can_predict=ready,
                     can_approve=ready
@@ -246,6 +248,8 @@ def models(store, s):
                         else "提升评估窗口"
                     ),
                     alpha=p["alpha"],
+                    can_guard_power=p["algorithm"] == "ridge" and tasks.spec(s["task"])["target"] == "pv_actual_mw",
+                    retrain_parameter_kind=("optimization_recipe" if p["algorithm"] == "controlled_optimization" else "regularization"),
                 )
             )
         return result
@@ -1488,6 +1492,20 @@ def review_history(
     )
 
 
+@router.get("/knowledge")
+def knowledge_history(
+    source_key: str, trading_date: Date, model_id: str | None = None,
+    record_id: str | None = None, task_id: str | None = None,
+    mode: Literal["live", "post", "replay"] = "post", until: str = "23:59",
+    basis: Literal["latest", "snapshot"] = "latest", question: str = "",
+    store: Store = Depends(store_dep),
+):
+    view = context(store, source_key, trading_date.isoformat(), model_id, record_id,
+                   mode, until, basis, task_id=task_id)
+    return dict(records=knowledge.search_cases(store, view, question, mode, until, 100),
+                notice=knowledge.NOTICE, context_version=view["context_version"])
+
+
 @router.get("/prediction-details")
 def prediction_details(
     source_key: str,
@@ -1504,6 +1522,14 @@ def prediction_details(
         return dict(
             explanation=None,
             notice="当前场站模型没有已核验的线性项解释记录，不制造模型解释。",
+        )
+    payload = ml.get_object(store, model_id, "model")["payload"]
+    if payload["algorithm"] == "controlled_optimization":
+        return dict(
+            explanation=None, unit=s["unit"], range=None,
+            explanation_unavailable="该候选使用历史特征和非线性树模型；没有经核验的逐项线性贡献，不能套用线性解释。",
+            range_unavailable="尚无经过独立覆盖率验证的预测区间。",
+            notice="展示的是已保存候选的真实预测；不把特征重要性冒充因果或线性贡献。",
         )
     d = research_views.prediction_details(record_id, confidence, store)
     return dict(
@@ -1534,6 +1560,7 @@ class Command(BaseModel):
         "final_audit",
         "scenario",
         "guard_power",
+        "ingest_case",
     ]
     source_key: str
     task_id: str | None = None
@@ -1543,9 +1570,10 @@ class Command(BaseModel):
     case_id: str | None = None
     feedback_id: str | None = None
     job_id: str | None = None
+    optimization_result_id: str | None = None
     actor: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=4000)
-    slot: int = Field(default=0, ge=0, le=95)
+    slot: int | None = Field(default=None, ge=0, le=95)
     alpha: float = Field(default=1, allow_inf_nan=False)
     key: str = Field(default="", max_length=100)
     mode: Literal["live", "post", "replay"] = "post"
@@ -1594,6 +1622,7 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
         "final_audit": "执行最终评估",
         "scenario": "保存量价测算",
         "guard_power": "建立训练期出力约束版本",
+        "ingest_case": "沉淀已确认复核案例",
     }
     details = dict(
         operation=operation,
@@ -1621,6 +1650,16 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
 
 
 def execute_command(b, request, store, s, day, m):
+    if b.action == "ingest_case":
+        if not b.feedback_id or not b.confirmed:
+            raise ValueError("请选择已确认复核，并确认当前预测和观测范围")
+        view = context(store, b.source_key, day, b.model_id, b.record_id, b.mode,
+                       b.until, b.basis, task_id=b.task_id)
+        if not b.context_version or b.context_version != view["context_version"]:
+            raise ValueError("所选预测或实际值已变化，请重新核对后沉淀")
+        result = knowledge.save_case(store, view, b.feedback_id, b.slot)
+        store.db.commit()
+        return dict(id=result["id"], knowledge_saved=True, notice=knowledge.NOTICE)
     if b.action == "guard_power":
         if s["domain"] != "market" or not m:
             raise ValueError("请先选择公开光伏线性模型")
@@ -1707,9 +1746,16 @@ def execute_command(b, request, store, s, day, m):
             raise ValueError("此数据范围尚未配置正式训练协议，不能使用市场电价协议代替")
         if not b.key:
             raise ValueError("训练提交缺少请求凭据，请刷新后重试")
-        ds = ml.register_dataset(
-            store, public_data.dataset()[0]["source_hash"], s["task"]
-        )
+        if b.optimization_result_id:
+            from .optimized_models import register_candidate
+            selected = ml.get_object(store, b.optimization_result_id, "optimization_result")
+            if selected["payload"]["task"] != s["task"]:
+                raise ValueError("优化结果不属于当前任务")
+            ds = register_candidate(store, b.optimization_result_id)
+        else:
+            ds = ml.register_dataset(
+                store, public_data.dataset()[0]["source_hash"], s["task"]
+            )
         return ml.submit(store, ds["id"], b.alpha, b.key)
     if b.action in {"cancel", "retry"}:
         if s["domain"] != "market" or not b.job_id:
@@ -1766,7 +1812,10 @@ def execute_command(b, request, store, s, day, m):
             feedback = ml.feedback(
                 store, b.record_id, b.slot, b.actor, b.reason, case["observation_id"]
             )
-            return ml.confirm_feedback(store, feedback["id"], b.actor, b.reason)
+            result = ml.confirm_feedback(store, feedback["id"], b.actor, b.reason)
+            case = knowledge.save_case(store, view, feedback["id"], b.slot)
+            store.db.commit()
+            return dict(**result, knowledge_saved=True, knowledge_id=case["id"])
         if not b.record_id:
             raise ValueError("请先选择一条当前范围的预测记录")
         points, _, _, _ = snapshot(
@@ -1839,7 +1888,9 @@ def execute_command(b, request, store, s, day, m):
             observed_at=now(),
         )
         store.db.commit()
-        return r
+        case = knowledge.save_case(store, view, r["feedback_id"], b.slot)
+        store.db.commit()
+        return dict(**r, knowledge_saved=True, knowledge_id=case["id"])
     if b.action in {"confirm", "proposal"}:
         if s["domain"] != "market" or not b.feedback_id:
             raise ValueError("当前来源没有对应研究重训提案")
@@ -1922,9 +1973,24 @@ def analyze_context(store, b):
         ),
         c["source"]["notice"],
     ]
+    tools, citations = knowledge.evidence_tools(store, c, b.reason, b.mode, b.until, b.slot)
+    point = knowledge.selected_point(c, b.slot)
+    def visible_number(value):
+        return "尚不可用" if value is None else f"{value:.3f}"
+    required_indices = [0, len(facts)-1]
+    if point:
+        delta = (point["actual"] - point["predicted"]
+                 if point["actual"] is not None and point["predicted"] is not None else None)
+        quality = {"valid":"已有观测", "missing":"应到缺测", "pending":"未来待到"}.get(point["quality"], "当前观测状态待核对")
+        selected_time = datetime.fromisoformat(point['start'].replace('Z','+00:00')).astimezone(public_data.TZ).strftime('%H:%M')
+        required_indices.append(len(facts))
+        facts.append(f"所选时段{selected_time}：预测{visible_number(point['predicted'])}，实际{visible_number(point['actual'])}，实际减预测{visible_number(delta)}，单位{c['source']['unit']}；日前价格{visible_number(point.get('da_price'))}、实时价格{visible_number(point.get('rt_price'))}元/MWh；{quality}。")
+    facts.extend(t["summary"] for t in tools[1:])
+    facts.extend(f"引用《{x['title']}》：{x['text']}" for x in citations)
     for case in sorted(c["cases"], key=lambda p: abs(p["error"]), reverse=True)[:3]:
+        case_time = datetime.fromisoformat(case["start"].replace("Z", "+00:00")).astimezone(public_data.TZ).strftime("%H:%M")
         facts.append(
-            f"{case['slot']//4:02d}:{case['slot']%4*15:02d}时段，实际{case['actual']:.3f}，预测{case['predicted']:.3f}。仅凭偏差不能确认气象或设备根因。"
+            f"{case_time}时段，实际{case['actual']:.3f}，预测{case['predicted']:.3f}。仅凭偏差不能确认气象或设备根因。"
         )
     cfg = load_settings()
     failure = None
@@ -1934,6 +2000,7 @@ def analyze_context(store, b):
         mode = "openai_compatible_evidence_summary"
         try:
             indices = select_evidence(cfg, facts, b.reason)
+            indices = list(dict.fromkeys([*required_indices, *indices]))
         except ProviderError as exc:
             failure = exc.code
     answer = (
@@ -1956,6 +2023,8 @@ def analyze_context(store, b):
             record_id=c["record_id"],
             question=b.reason,
             facts=facts,
+            tool_calls=tools,
+            citations=citations,
             answer=answer,
             llm_mode=mode,
             provider_error=failure,
@@ -1985,4 +2054,7 @@ def analyze_context(store, b):
         answer_markdown=answer,
         llm_mode=mode,
         context_version=c["context_version"],
+        tools=tools,
+        citations=citations,
+        knowledge_notice=knowledge.NOTICE,
     )

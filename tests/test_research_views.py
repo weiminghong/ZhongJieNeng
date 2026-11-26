@@ -1,5 +1,7 @@
 import unittest
+import copy
 from datetime import date
+from unittest.mock import patch
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -65,6 +67,28 @@ class ResearchViewTests(unittest.TestCase):
         tune = ml.prediction(self.store, ids[0], "2024-02-24", True)
         self.assertIsNone(views.prediction_details(tune["id"], .95, self.store)["range"])
         self.assertEqual(wide["range"]["points"][0]["predicted"], prediction["payload"]["points"][0]["predicted"])
+
+    def test_optimized_comparison_requires_same_information_and_exact_labels(self):
+        _, ids = self.fixture.trained()
+        original = ml.get_object(self.store, ids[0])
+        candidate = copy.deepcopy(original)
+        candidate["id"] = "generated-controlled-candidate"
+        p = candidate["payload"]
+        p.update(algorithm="controlled_optimization", dataset_id="different-feature-contract")
+        p["policy"]["information_budget"] = "d2_history"
+        native = ml.read_npz(p["evaluation_predictions"])
+        native["promotion_controlled_optimization"] = native["promotion_ridge"]
+        p["evaluation_predictions"] = ml.write_npz("generated/controlled-comparison.npz", **native)
+        p["report"]["promotion"]["scores"]["controlled_optimization"] = p["report"]["promotion"]["scores"]["ridge"]
+        with patch.object(ml, "objects", return_value=[original, candidate]):
+            result = views.compare(self.store, ids[0], "promotion")
+            self.assertEqual(len(result["rows"]), 2)
+            p["policy"]["information_budget"] = "d2_history_early_d1"
+            self.assertEqual(len(views.compare(self.store, ids[0], "promotion")["rows"]), 1)
+            p["policy"]["information_budget"] = "d2_history"
+            native["promotion_y"] = native["promotion_y"] + 1
+            p["evaluation_predictions"] = ml.write_npz("generated/changed-label-comparison.npz", **native)
+            self.assertEqual(len(views.compare(self.store, ids[0], "promotion")["rows"]), 1)
 
     def test_history_and_csv_export_are_immutable_read_views(self):
         _, ids = self.fixture.trained()

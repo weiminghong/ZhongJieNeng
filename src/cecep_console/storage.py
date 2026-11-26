@@ -23,6 +23,8 @@ DEFAULT_DB = BASE.parents[1] / "runtime/data/cecep.sqlite3"
 REGISTRY_TABLES = {"ml_source_registry","ml_dataset_registry","ml_model_registry","ml_prediction_registry","ml_observation_registry","ml_feedback_registry","ml_retrain_registry","ml_audit_registry"}
 REGISTRY_TABLES |= {name+"_v2" for name in REGISTRY_TABLES if name not in {"ml_source_registry","ml_dataset_registry"}}
 REGISTRY_TABLES.add("ml_business_scenario")
+REGISTRY_TABLES |= {"ml_"+name+"_registry_v3" for name in ("model","prediction","observation","feedback","retrain","audit")}
+REGISTRY_TABLES |= {"ml_optimization_origin", "ml_business_scenario_v3"}
 UPPER_TABLES = {
     "training_dataset_version",
     "drift_check_run",

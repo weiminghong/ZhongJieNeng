@@ -84,9 +84,65 @@
   padding: 12px;
   white-space: normal;
 }
-.unified-case-list button.is-active {
+.unified-case-list button.is-selected {
   border-color: var(--ce-color-primary);
   background: var(--ce-color-primary-container);
+}
+.unified-source-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px 24px;
+  line-height: 1.8;
+}
+.unified-source-facts div {
+  min-width: 0;
+}
+.unified-source-facts dt {
+  color: var(--ce-color-on-surface-variant);
+  font-size: 12px;
+}
+.unified-source-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.unified-interval-facts {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ce-color-outline);
+}
+.unified-interval-select {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.unified-detail-actions {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+}
+.unified-detail-actions button {
+  white-space: normal;
+  min-height: 44px;
+}
+.unified-analysis-tools {
+  display: grid;
+  gap: 16px;
+}
+.unified-analysis-tools article {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ce-color-outline);
+}
+.unified-analysis-tools h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.unified-analysis-tools p {
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 0;
 }
 .unified-case-list small {
   color: var(--ce-color-on-surface-variant);
