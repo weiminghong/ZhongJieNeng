@@ -278,6 +278,9 @@ export default function Workbench() {
   const approvalReason = drafts[scopeKey + ":approval"] || "";
   const hasConfirmed = confirmedKey === reasonKey + ":" + actor;
   useEffect(() => {
+    document.querySelector(".unified-workbench .energy-scroll")?.scrollTo({ top: 0 });
+  }, [s.tab, s.source, s.date]);
+  useEffect(() => {
     history.replaceState(null, "", "/" + selectionUrl(s));
     sessionStorage.setItem("cecep-workbench-selection", JSON.stringify(s));
     setError("");
