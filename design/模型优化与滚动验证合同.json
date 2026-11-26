@@ -1,0 +1,153 @@
+{
+  "contract_id": "cecep-optimization-v2-20261126",
+  "phase": "frozen_before_fits",
+  "source_hash": "5d00ffd26a75078c521ebecbd5aa8eba172d1eaf2816e8b64f05d08a8eee7954",
+  "source_rows": 71520,
+  "tasks": [
+    "pv_day_ahead_reference",
+    "prebid_spread_reference",
+    "intraday_spread_reference"
+  ],
+  "training_start": "2024-01-29",
+  "warmup_days": 28,
+  "folds": [
+    {
+      "name": "autumn_2024",
+      "start": "2024-10-01",
+      "end": "2024-11-29",
+      "outer_validation": true
+    },
+    {
+      "name": "winter_2024",
+      "start": "2024-12-01",
+      "end": "2025-01-29",
+      "outer_validation": true
+    },
+    {
+      "name": "spring_2025",
+      "start": "2025-03-01",
+      "end": "2025-04-29",
+      "outer_validation": true
+    },
+    {
+      "name": "summer_2025",
+      "start": "2025-06-01",
+      "end": "2025-07-30",
+      "outer_validation": true
+    },
+    {
+      "name": "autumn_2025",
+      "start": "2025-10-01",
+      "end": "2025-11-29",
+      "outer_validation": true
+    }
+  ],
+  "selection": {
+    "tune_days": 29,
+    "tune_end_offset_days": 2,
+    "inner_train_end_offset_days": 32,
+    "refit_end_offset_days": 2,
+    "criterion": "minimum inner MAE subject to RMSE<=reference; includes unchanged reference fallback",
+    "outer_labels_used_for_selection": false
+  },
+  "recipes": [
+    {
+      "name": "ridge_bounded",
+      "kind": "ridge_bounded",
+      "alpha": 10,
+      "power_only": true
+    },
+    {
+      "name": "ridge_rich",
+      "kind": "ridge_rich",
+      "alpha": 100
+    },
+    {
+      "name": "median_direct",
+      "kind": "hgb",
+      "loss": "absolute_error"
+    },
+    {
+      "name": "median_residual",
+      "kind": "hgb",
+      "loss": "absolute_error",
+      "residual": true,
+      "exclude_tasks": [
+        "prebid_spread_reference"
+      ]
+    },
+    {
+      "name": "median_residual_recent",
+      "kind": "hgb",
+      "loss": "absolute_error",
+      "residual": true,
+      "recent_days": 180
+    },
+    {
+      "name": "mean_residual",
+      "kind": "hgb",
+      "loss": "squared_error",
+      "residual": true
+    }
+  ],
+  "blend_values": [
+    0.25,
+    0.5,
+    0.75,
+    1
+  ],
+  "fixed_tree_parameters": {
+    "max_iter": 180,
+    "max_leaf_nodes": 15,
+    "min_samples_leaf": 40,
+    "learning_rate": 0.05,
+    "l2_regularization": 10,
+    "early_stopping": false,
+    "random_state": 42
+  },
+  "prediction_bound": "PV only: lower quantile .001 fitted on training labels; labels unchanged",
+  "controls": [
+    "same-as-of refitted original Ridge alpha10",
+    "D2",
+    "D7",
+    "zero spread",
+    "recent observation for intraday"
+  ],
+  "input_budget": "Own and cross-market actual fields from D2 and earlier; intraday own target observations delayed at least one hour. All target-day source forecast columns excluded.",
+  "scorer": {
+    "version": "paired_calendar_week_cluster_v2",
+    "replicates": 2000,
+    "seed": 42,
+    "independent_unit": "calendar week cluster; daily MAE difference",
+    "adoption": "upper95(delta MAE)<0 and RMSE<=reference and matched old recipe; report fold stability"
+  },
+  "consumed_window": {
+    "start": "2025-12-01",
+    "end": "2026-01-14",
+    "role": "diagnosis and replay after choices frozen; not a new blind final audit"
+  },
+  "budget": {
+    "device": "CPU",
+    "threads": 4,
+    "concurrent_training_jobs": 1,
+    "queue": "existing controller; exec retains PID and birth identity",
+    "main_jobs": 3,
+    "timeout_seconds_per_job": 1800
+  },
+  "environment": {
+    "name": "optimization-v2",
+    "numpy": "2.3.5",
+    "scipy": "1.18.1",
+    "sklearn": "1.6.1"
+  },
+  "runner": {
+    "runner_sha256": "1c4eba9e712aa845dd953923f6e09aa4a9e938c59c738d7c1322548efc5309b6",
+    "bytes": 13855
+  },
+  "nonclaims": [
+    "All rolling windows are retrospective, not fresh unseen data",
+    "No original final audit is reset",
+    "No certified publication times or site production benefit",
+    "No external data or target label replacement"
+  ]
+}

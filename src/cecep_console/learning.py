@@ -593,6 +593,8 @@ def submit(store, dataset_id, alpha, key, parent=None, proposal_id=None):
         policy_hash=digest(ds["payload"]["policy"]),
         proposal_id=proposal_id,
     )
+    if ds["payload"]["policy"].get("engine"):
+        config["engine"] = ds["payload"]["policy"]["engine"]
     prior = store.db.execute(
         "SELECT job_id FROM ml_job WHERE idempotency_key=?", (key,)
     ).fetchone()
@@ -624,6 +626,10 @@ def execute(store, jid):
     j = job(store, jid)
     ds = get_object(store, j["dataset_id"], "dataset")
     policy = ds["payload"]["policy"]
+    if policy.get("engine"):
+        from .optimization_bridge import execute as optimize
+
+        return optimize(store, jid, policy)
     task = policy["task"]
     dim = len(policy["features"])
 
