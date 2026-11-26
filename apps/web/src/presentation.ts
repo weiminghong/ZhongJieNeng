@@ -128,6 +128,11 @@ export const toolLabel = (value?: string) =>
 /** Display only. The stored evidence and machine identifiers remain unchanged. */
 export function businessText(value: unknown): string {
   let text = String(value ?? "");
+  text = text
+    .replace(/intraday-corr-demo/g, "日内修正参考模型")
+    .replace(/lgbm-demo/g, "光伏功率参考模型")
+    .replace(/demo-scenario/g, "演示参考模型")
+    .replace(/(\d+(?:\.\d+)?)-cand\b/g, "$1候选");
   if (/constraint failed|FOREIGN KEY|sqlite|ml_\w+registry/i.test(text))
     return "记录关联校验未通过，请刷新后重试。问题仍存在时请联系维护人员。";
   text = text.replace(

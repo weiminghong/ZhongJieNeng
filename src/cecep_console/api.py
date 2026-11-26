@@ -52,6 +52,7 @@ from .readiness import connection_readiness, available_dates
 from . import public_data
 from .learning_api import router as learning_router
 from .research_views import router as research_router
+from .workbench_context import router as unified_router
 
 
 class PublicScope(BaseModel):
@@ -272,6 +273,7 @@ def create_app():
     app = FastAPI(title="中节能光伏交易工作台", version="1.0.0", lifespan=lifespan)
     app.include_router(learning_router)
     app.include_router(research_router)
+    app.include_router(unified_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):

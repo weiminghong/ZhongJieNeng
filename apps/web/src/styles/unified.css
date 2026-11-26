@@ -1,0 +1,210 @@
+/* One workbench shell and source-owned business context. */
+.unified-workbench .energy-scroll > .panel,
+.unified-workbench .research-two-grid > .panel {
+  padding: 0 20px 20px;
+  margin-bottom: 20px;
+}
+.unified-workbench .panel-head {
+  padding: 20px 0 16px;
+}
+.unified-workbench .energy-sidebar-bottom button {
+  background: transparent;
+  color: var(--ce-color-on-primary);
+  border-color: transparent;
+  justify-content: flex-start;
+}
+.unified-filters {
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.unified-filters label {
+  min-width: 0;
+}
+.unified-filters select {
+  max-width: 320px;
+  min-width: 140px;
+}
+.unified-scope-notice {
+  color: var(--ce-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0 0 20px;
+}
+.unified-scope-notice span {
+  display: block;
+}
+.unified-action-form {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.unified-action-form label,
+.unified-question {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.unified-action-form input {
+  max-width: 320px;
+}
+.unified-action-form textarea,
+.unified-question textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+}
+.unified-question {
+  margin-bottom: 16px;
+}
+.unified-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  margin: 16px 0;
+  line-height: 1.8;
+}
+.unified-confirm input {
+  flex-shrink: 0;
+  width: 16px;
+  min-height: 16px;
+  margin-top: 3px;
+  accent-color: var(--ce-color-primary);
+}
+.unified-case-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.unified-case-list button {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  justify-content: stretch;
+  padding: 12px;
+  white-space: normal;
+}
+.unified-case-list button.is-active {
+  border-color: var(--ce-color-primary);
+  background: var(--ce-color-primary-container);
+}
+.unified-case-list small {
+  color: var(--ce-color-on-surface-variant);
+}
+.unified-model-title {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.unified-workbench .research-metrics .unified-model-title {
+  font-size: 15px;
+  line-height: 1.6;
+}
+.unified-workbench .unified-overview {
+  grid-template-columns: minmax(0, 1fr) 304px;
+  align-items: start;
+}
+.unified-overview .panel {
+  padding: 0 20px 20px;
+  margin-bottom: 20px;
+}
+.unified-review-history {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ce-color-outline);
+}
+.unified-review-history h3 {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0 0 8px;
+}
+.unified-review-history small {
+  color: var(--ce-color-on-surface-variant);
+  font-size: 11px;
+}
+.unified-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.unified-flow-step {
+  border-top: 1px solid var(--ce-color-outline);
+  padding: 16px 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.unified-flow-step .badge {
+  justify-self: start;
+}
+.unified-flow-step p {
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0;
+  color: var(--ce-color-on-surface-variant);
+}
+.unified-event {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 20px;
+  border-bottom: 1px solid var(--ce-color-outline);
+  padding: 16px 0;
+}
+.unified-event p {
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+}
+.unified-event time {
+  color: var(--ce-color-on-surface-variant);
+  font-size: 11px;
+}
+.unified-settings.model-settings-page {
+  max-width: none;
+  padding: 0;
+}
+.unified-settings .model-settings-heading {
+  margin-top: 0;
+}
+.unified-settings .model-settings-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+.unified-workbench .learning-answer {
+  white-space: pre-wrap;
+  line-height: 1.9;
+}
+@media (max-width: 900px) {
+  .unified-workbench .unified-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .unified-workbench.research-shell.energy-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .unified-workbench .energy-main {
+    display: block;
+    overflow: visible;
+  }
+  .unified-filters label {
+    flex: 1 1 140px;
+  }
+  .unified-filters select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .unified-workbench .energy-sidebar nav button {
+    min-height: 44px;
+  }
+  .unified-workbench .energy-scroll > .panel,
+  .unified-workbench .research-two-grid > .panel {
+    padding-inline: 16px;
+  }
+  .unified-event {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

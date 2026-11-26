@@ -1,11 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import ModelSettings from "./ModelSettings";
+import App from "./App";
 import "./styles/tokens.css";
 import "./styles/tailwind-theme.css";
 import "./styles/app.css";
-import "./styles/settings.css";
+import "./styles/workspace.css";
+import "./styles/public-workspace.css";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode><ModelSettings /></StrictMode>,
+  <StrictMode>
+    <App />
+  </StrictMode>,
 );

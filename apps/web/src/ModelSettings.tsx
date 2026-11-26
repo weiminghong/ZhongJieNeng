@@ -1,7 +1,6 @@
 import { businessText, analysisLabel } from "./presentation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  ArrowLeft,
   Check,
   Eye,
   EyeOff,
@@ -159,17 +158,13 @@ export default function ModelSettings() {
     }
   }
   return (
-    <main className="model-settings-page">
-      <a className="button" href="/">
-        <ArrowLeft size={15} />
-        返回工作台
-      </a>
+    <section className="model-settings-page unified-settings">
       <header className="model-settings-heading">
         <div>
-          <h1>
+          <h2>
             <Settings2 size={23} />
-            Agent 模型配置
-          </h1>
+            智能体服务配置
+          </h2>
           <p>
             配置项目的外部语言模型。功率、电价与收益仍由业务模型和确定性工具计算。
           </p>
@@ -406,6 +401,6 @@ export default function ModelSettings() {
         </div>
       )}
       <RuntimeSettings />
-    </main>
+    </section>
   );
 }
