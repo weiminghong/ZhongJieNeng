@@ -23,6 +23,7 @@ from .readiness import available_dates
 from .rsi import model_states, rsi_overview, review_feedback, approve_model
 from .model_runtime import list_runtime_models, builtin_model, run_model_inference
 from .model_settings import load_settings
+from . import task_catalog as tasks
 
 router = APIRouter(prefix="/api/v1/workspace", tags=["unified-workbench"])
 
@@ -45,9 +46,7 @@ def sources(store):
     public = public_data.catalog()
     past = [
         r[0]
-        for r in store.db.execute(
-            "SELECT DISTINCT trading_date FROM ml_prediction_registry"
-        )
+        for r in store.db.execute("SELECT DISTINCT trading_date FROM ml_predictions")
     ]
     public_dates = sorted(set(public["dates"]) | set(past))
     result = [
@@ -67,6 +66,16 @@ def sources(store):
             ),
             notice="省级公开历史数据，用于研究；原始发布时间未核验。",
             can_train=True,
+            tasks=[
+                dict(
+                    id=k,
+                    name=v["name"],
+                    unit=v["display_unit"],
+                    points=len(tasks.slots(k)),
+                    intraday=v["intraday"],
+                )
+                for k, v in tasks.TASKS.items()
+            ],
         )
     ]
     for station in rows(
@@ -107,10 +116,37 @@ def sources(store):
     return result
 
 
-def source(store, key):
+def source(store, key, task_id=None):
     found = next((s for s in sources(store) if s["key"] == key), None)
     if not found:
         raise ValueError("数据范围不存在，请重新选择")
+    if found["domain"] == "market":
+        task_id = task_id or ml.TASK
+        v = tasks.spec(task_id)
+        found.update(
+            task=task_id,
+            task_name=v["name"],
+            unit=v["display_unit"],
+            notice=tasks.notice(task_id),
+            target_points=len(tasks.slots(task_id)),
+            intraday=v["intraday"],
+        )
+    elif task_id and task_id != found["task"]:
+        raise ValueError("此场站范围没有所选任务，请选择公开数据范围")
+    else:
+        found.update(
+            tasks=[
+                dict(
+                    id=found["task"],
+                    name=found["task_name"],
+                    unit=found["unit"],
+                    points=96,
+                    intraday=False,
+                )
+            ],
+            target_points=96,
+            intraday=False,
+        )
     return found
 
 
@@ -157,7 +193,7 @@ def get_catalog(store: Store = Depends(store_dep)):
 
 def models(store, s):
     if s["domain"] == "market":
-        active = ml.active(store)["detail"]
+        active = ml.active(store, s["task"])["detail"]
         result = []
         for m in ml.objects(store, "model"):
             p = m["payload"]
@@ -172,7 +208,8 @@ def models(store, s):
                     id=m["id"],
                     name=m["display_name"],
                     state=m["state"],
-                    trained=p["algorithm"] == "ridge" and ready,
+                    trained=p["algorithm"] == "ridge"
+                    and ml.job(store, p["job_id"])["state"] == "succeeded",
                     can_predict=ready,
                     can_approve=ready
                     and m["state"] in {"evaluated", "shadow", "retired"},
@@ -286,7 +323,9 @@ def records(store, s, day, mode="post", until="24:00"):
                 date=r["date"],
                 created_at=r["created_at"],
             )
-            for r in research_views.prediction_list(store, trading_date=day, limit=100)
+            for r in research_views.prediction_list(
+                store, trading_date=day, limit=100, task=s["task"]
+            )
         ]
     start, end = day_bounds(day)
     cutoff = instant(f"{day}T{until}:00+08:00") if mode == "replay" else now()
@@ -357,7 +396,15 @@ def owned_record(store, s, rid, day, mid=None, mode="post", until="23:59"):
 
 
 def snapshot(
-    store, s, day, mid=None, rid=None, mode="post", until="23:59", basis="latest"
+    store,
+    s,
+    day,
+    mid=None,
+    rid=None,
+    mode="post",
+    until="23:59",
+    basis="latest",
+    source_dataset=None,
 ):
     visible = (
         min(96, (int(until[:2]) * 60 + int(until[3:])) // 15)
@@ -392,45 +439,82 @@ def snapshot(
             data = public_data.series(day, visible, sha, source_dataset=dataset)
         else:
             selected = []
-            data = public_data.series(day, visible)
+            dataset = source_dataset or public_data.dataset()
+            data = public_data.series(day, visible, source_dataset=dataset)
+        day_rows = dataset[2][day]
+        task = s["task"]
+        hourly = tasks.spec(task)["hourly"]
         byslot = {p["slot"]: p for p in selected}
-        points = [
-            dict(
-                slot=p["slot"],
-                start=p["interval_start"],
-                actual=(
-                    (
-                        byslot.get(p["slot"], {}).get("actual")
-                        if saved
-                        else p["rt_price"]
-                    )
-                    if p["slot"] < visible
-                    else None
-                ),
-                predicted=byslot.get(p["slot"], {}).get("predicted"),
-                observation_key=ml.digest(
-                    dict(
-                        source_hash=sha if saved else data["metadata"]["source_hash"],
-                        slot=p["slot"],
-                    )
-                ),
-                da_price=p["da_price"],
-                rt_price=p["rt_price"],
-                pv_actual=p["pv_actual_mw"],
-                quality=(
-                    "valid"
-                    if p["slot"] < visible
-                    and (
-                        byslot.get(p["slot"], {}).get("actual")
-                        if saved
-                        else p["rt_price"]
-                    )
-                    is not None
-                    else "missing" if p["slot"] < visible else "pending"
-                ),
+        points = []
+        for p in data["points"]:
+            slot = p["slot"]
+            if slot not in tasks.slots(task):
+                continue
+            actual = (
+                (
+                    byslot.get(slot, {}).get("actual")
+                    if saved
+                    else tasks.target(task, day_rows, slot)
+                )
+                if slot < visible
+                else None
             )
-            for p in data["points"]
-        ]
+            issue_slot = slot - 3 if hourly else slot
+            predicted = (
+                byslot.get(slot, {}).get("predicted")
+                if not (s.get("intraday") and mode == "replay" and issue_slot > visible)
+                else None
+            )
+            start = datetime.fromisoformat(
+                p["interval_start"].replace("Z", "+00:00")
+            ) - timedelta(minutes=45 if hourly else 0)
+            points.append(
+                dict(
+                    slot=slot,
+                    start=start.isoformat(),
+                    actual=actual,
+                    predicted=predicted,
+                    observation_key=ml.digest(
+                        dict(
+                            task=task,
+                            source_hash=data["metadata"]["source_hash"],
+                            slot=slot,
+                        )
+                    ),
+                    da_price=(
+                        (
+                            tasks.hour_value(day_rows, slot, "da_price")
+                            if hourly
+                            else p["da_price"]
+                        )
+                        if slot < visible
+                        else None
+                    ),
+                    rt_price=(
+                        (
+                            tasks.hour_value(day_rows, slot, "rt_price")
+                            if hourly
+                            else p["rt_price"]
+                        )
+                        if slot < visible
+                        else None
+                    ),
+                    pv_actual=(
+                        (
+                            tasks.hour_value(day_rows, slot, "pv_actual_mw")
+                            if hourly
+                            else p["pv_actual_mw"]
+                        )
+                        if slot < visible
+                        else None
+                    ),
+                    quality=(
+                        "valid"
+                        if actual is not None
+                        else "missing" if slot < visible else "pending"
+                    ),
+                )
+            )
         return points, saved, observation, data["metadata"]
     intervals, cutoff = station_intervals(store, s, day, mode, until)
     selected = {}
@@ -571,8 +655,9 @@ def context(
     until="23:59",
     basis="latest",
     window="promotion",
+    task_id=None,
 ):
-    s = source(store, key)
+    s = source(store, key, task_id)
     day = day or s["default_date"]
     mm = models(store, s)
     if mid:
@@ -583,18 +668,18 @@ def context(
         for m in mm:
             m["can_approve"] = m["can_approve"] and m.get("approval_day") == day
     else:
-        active = ml.active(store)["detail"].get("model_id")
+        active = ml.active(store, s["task"])["detail"].get("model_id")
         for m in mm:
             obj = ml.get_object(store, m["id"], "model")
             p = obj["payload"]
-            if not active and p["algorithm"] != "seasonal_naive_d2":
+            if not active and p["algorithm"] != p["policy"].get(
+                "initial_baseline", "seasonal_naive_d2"
+            ):
                 m["can_approve"] = False
             sealed = p["splits"]["final_audit"]
             if (
                 sealed[0] <= day <= sealed[1]
-                and ml.state(store, "final:" + obj["source_hash"])["detail"].get(
-                    "model_id"
-                )
+                and ml.state(store, tasks.seal(obj))["detail"].get("model_id")
                 != m["id"]
             ):
                 m["can_predict"] = False
@@ -622,7 +707,7 @@ def context(
         mid = r["model_id"]
     if not mid:
         mid = (
-            ml.active(store)["detail"].get("model_id")
+            ml.active(store, s["task"])["detail"].get("model_id")
             if s["domain"] == "market"
             else next((m["id"] for m in mm if m["state"] == "production"), None)
         ) or (mm[0]["id"] if mm else None)
@@ -650,7 +735,8 @@ def context(
         jobs = [
             ml.job(store, r[0])
             for r in store.db.execute(
-                "SELECT job_id FROM ml_job ORDER BY rowid DESC LIMIT 50"
+                "SELECT j.job_id FROM ml_job j JOIN ml_dataset_registry d USING(dataset_id) WHERE d.task=? ORDER BY j.rowid DESC LIMIT 50",
+                (s["task"],),
             )
         ]
         activity = []
@@ -669,6 +755,32 @@ def context(
                 (e["subject_id"],),
             ).fetchone()
             if obj and json.loads(obj[0]).get("source_key", s["key"]) != s["key"]:
+                continue
+            if (
+                e["subject_id"].startswith("workbench:")
+                and e["detail"].get("task_id", ml.TASK) != s["task"]
+            ):
+                continue
+            payload = json.loads(obj[0]) if obj else {}
+            event_task = payload.get("task") or payload.get("policy", {}).get("task")
+            if not event_task and payload.get("model_id"):
+                event_task = ml.get_object(store, payload["model_id"], "model")[
+                    "payload"
+                ]["task"]
+            job_id = e["subject_id"].removeprefix("ownership:")
+            jr = store.db.execute(
+                "SELECT d.task FROM ml_job j JOIN ml_dataset_registry d USING(dataset_id) WHERE j.job_id=?",
+                (job_id,),
+            ).fetchone()
+            if jr:
+                event_task = jr["task"]
+            if event_task and event_task != s["task"]:
+                continue
+            if (
+                not event_task
+                and not e["subject_id"].startswith("workbench:")
+                and s["task"] != ml.TASK
+            ):
                 continue
             activity.append(e)
         activity = activity[:30]
@@ -721,7 +833,11 @@ def context(
             dict(
                 name="预测记录",
                 state="succeeded" if saved else "pending",
-                detail="已保存96点预测" if saved else "当前日期尚无所选模型的预测",
+                detail=(
+                    f"已保存{len(points)}点预测"
+                    if saved
+                    else "当前日期尚无所选模型的预测"
+                ),
             ),
             dict(
                 name="实际值核对",
@@ -838,9 +954,84 @@ def context(
                 detail=f"{sum(bool(c['feedback_id']) for c in cases)} 条已复核 / {len(cases)} 个可核对时段",
             ),
         ]
+    related = []
+    if s["domain"] == "market" and mid:
+        model = ml.get_object(store, mid, "model")
+        job = ml.job(store, model["payload"]["job_id"])
+        proposal_id = job["config"].get("proposal_id")
+        proposals = [
+            p for p in ml.objects(store, "proposal") if p["payload"]["model_id"] == mid
+        ]
+        if proposal_id:
+            proposals = [ml.get_object(store, proposal_id, "proposal")] + proposals
+        follow_job = None
+        if proposals:
+            proposal = proposals[0]
+            feedback = ml.get_object(
+                store, proposal["payload"]["feedback_id"], "feedback"
+            )
+            parent = ml.get_object(store, feedback["payload"]["model_id"], "model")
+            related.append(
+                dict(
+                    name="查看重训复核依据",
+                    date=feedback["payload"]["date"],
+                    model=parent["id"],
+                    record=feedback["parent_id"],
+                    slot=feedback["payload"]["slot"],
+                    tab="rsi",
+                )
+            )
+            jr = store.db.execute(
+                "SELECT job_id FROM ml_job WHERE json_extract(config_json,'$.proposal_id')=? ORDER BY rowid DESC LIMIT 1",
+                (proposal["id"],),
+            ).fetchone()
+            if jr:
+                follow_job = ml.job(store, jr[0])
+        flow.extend(
+            [
+                dict(
+                    name="重训复核依据",
+                    state="confirmed" if proposals else "pending",
+                    detail=(
+                        (
+                            feedback["payload"]["date"]
+                            + " · "
+                            + feedback["payload"]["actor"]
+                        )
+                        if proposals
+                        else "从调参窗口核对预测与原始标签后提交提案"
+                    ),
+                ),
+                dict(
+                    name="重训作业",
+                    state=follow_job["state"] if follow_job else "pending",
+                    detail=(
+                        follow_job["display_name"]
+                        if follow_job
+                        else "尚未提交关联重训作业"
+                    ),
+                ),
+                dict(
+                    name="同口径评估",
+                    state="evaluated",
+                    detail=str(model["payload"]["report"]["promotion"]["rows"])
+                    + " 个共同样本；"
+                    + model["payload"]["splits"]["promotion"][0]
+                    + " 至 "
+                    + model["payload"]["splits"]["promotion"][1],
+                ),
+                dict(
+                    name="研究版本决定",
+                    state=model["state"],
+                    detail="只变更研究版本；不会冒充场站生产发布",
+                ),
+            ]
+        )
     context_version = ml.digest(
         dict(
             source=key,
+            task=s["task"],
+            observation=obs["id"] if obs else None,
             date=day,
             model=mid,
             record=rid,
@@ -867,6 +1058,7 @@ def context(
         comparison_notice=comparison_notice,
         flow=flow,
         metadata=metadata,
+        related=related,
         checked_at=now(),
         capabilities=dict(
             train=s["can_train"],
@@ -892,6 +1084,7 @@ def get_context(
     until: str = "23:59",
     basis: Literal["latest", "snapshot"] = "latest",
     window: Literal["tune", "promotion", "final_audit"] = "promotion",
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
     try:
@@ -908,6 +1101,7 @@ def get_context(
         until,
         basis,
         window,
+        task_id=task_id,
     )
 
 
@@ -917,19 +1111,23 @@ def scenario(
     trading_date: Date,
     quantity: float = Query(default=1, ge=0, le=1000000, allow_inf_nan=False),
     fee: float = Query(default=0, ge=0, le=1000000, allow_inf_nan=False),
+    bid_ratio: float = Query(default=1, ge=0, le=1.5, allow_inf_nan=False),
     mode: Literal["live", "post", "replay"] = "post",
     until: str = "23:59",
     model_id: str | None = None,
     record_id: str | None = None,
     basis: Literal["latest", "snapshot"] = "latest",
     expected_version: str = "",
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
-    s = source(store, source_key)
+    s = source(store, source_key, task_id)
     day = trading_date.isoformat()
     if day not in s["dates"]:
         raise ValueError("测算日期不属于当前范围")
-    view = context(store, source_key, day, model_id, record_id, mode, until, basis)
+    view = context(
+        store, source_key, day, model_id, record_id, mode, until, basis, task_id=task_id
+    )
     if expected_version and expected_version != view["context_version"]:
         raise ValueError("数据已更新，请检查更新后重新测算")
     points = view["points"]
@@ -958,12 +1156,43 @@ def scenario(
             )
             for p in result.get("plans", [])
         ]
+    from .public_settlement import calculate
+
+    settlement = (
+        calculate(store, view, bid_ratio, fee) if s["domain"] == "market" else None
+    )
+    history = []
+    for obj in ml.objects(store, "scenario", 100):
+        p = obj["payload"]
+        if (
+            p.get("source_key") == source_key
+            and p.get("task") == s["task"]
+            and p.get("date") == day
+        ):
+            history.append(
+                dict(
+                    name=obj["display_name"],
+                    model_name=ml.get_object(store, p["model_id"], "model")[
+                        "display_name"
+                    ],
+                    created_at=obj["created_at"],
+                    value=p["result"]["value"],
+                    delta=p["result"]["delta"],
+                    intervals=p["result"]["settled_intervals"],
+                    bid_ratio=p["bid_ratio"],
+                    fee=p["fee"],
+                    current_observation=obj["source_hash"]
+                    == view["metadata"].get("source_hash"),
+                )
+            )
     return dict(
         available=bool(paired),
         quantity=quantity,
         value=value,
         points=len(paired),
         plans=plans,
+        settlement=settlement,
+        history=history,
         notice="价差情景只按每个有效时段的假设电量计算，不代表场站真实收益。已登记场站方案的结算结果另行列出。",
     )
 
@@ -979,13 +1208,16 @@ def history(
     record_id: str | None = None,
     basis: Literal["latest", "snapshot"] = "latest",
     expected_version: str = "",
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
-    s = source(store, source_key)
+    s = source(store, source_key, task_id)
     day = trading_date.isoformat()
     if day not in s["dates"]:
         raise ValueError("历史范围不属于当前数据来源")
-    view = context(store, source_key, day, model_id, record_id, mode, until, basis)
+    view = context(
+        store, source_key, day, model_id, record_id, mode, until, basis, task_id=task_id
+    )
     if expected_version and expected_version != view["context_version"]:
         raise ValueError("数据已更新，请检查更新后重新查看历史")
     frozen = (
@@ -997,16 +1229,14 @@ def history(
     points = []
     for d in dates:
         if s["domain"] == "market":
-            visible = (
-                (int(until[:2]) * 60 + int(until[3:])) // 15
-                if mode == "replay" and d == day
-                else 96
+            rows_for_day, _, _, _ = snapshot(
+                store,
+                s,
+                d,
+                mode=mode if d == day else "post",
+                until=until,
+                source_dataset=frozen,
             )
-            data = public_data.series(d, visible, source_dataset=frozen)
-            rows_for_day = [
-                dict(start=p["interval_start"], actual=p["rt_price"])
-                for p in data["points"]
-            ]
         else:
             intervals, _ = station_intervals(
                 store,
@@ -1025,13 +1255,14 @@ def history(
     valid = np.isfinite(y)
     sums = np.r_[0, np.cumsum(np.where(valid, y, 0))]
     counts = np.r_[0, np.cumsum(valid)]
+    period = len(tasks.slots(s["task"])) if s["domain"] == "market" else 96
     end = np.arange(len(y)) + 1
-    begin = np.maximum(0, end - 96)
+    begin = np.maximum(0, end - period)
     n = counts[end] - counts[begin]
     trend = np.divide(
-        sums[end] - sums[begin], n, out=np.full(len(y), np.nan), where=n >= 48
+        sums[end] - sums[begin], n, out=np.full(len(y), np.nan), where=n >= period // 2
     )
-    available = int(valid.sum()) >= 288
+    available = int(valid.sum()) >= 3 * period
     seasonal = np.full(len(y), np.nan)
     if available:
         for slot in range(96):
@@ -1086,6 +1317,7 @@ def export(
     until: str = "23:59",
     basis: Literal["latest", "snapshot"] = "latest",
     expected_version: str = "",
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
     c = context(
@@ -1097,6 +1329,7 @@ def export(
         mode,
         until,
         basis,
+        task_id=task_id,
     )
     if expected_version and expected_version != c["context_version"]:
         raise ValueError("数据已更新，请检查更新后重新导出")
@@ -1129,9 +1362,10 @@ def review_history(
     trading_date: Date,
     mode: Literal["live", "post", "replay"] = "post",
     until: str = "23:59",
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
-    s = source(store, source_key)
+    s = source(store, source_key, task_id)
     day = trading_date.isoformat()
     if day not in s["dates"]:
         raise ValueError("复核日期不属于当前数据范围")
@@ -1221,9 +1455,10 @@ def prediction_details(
     model_id: str,
     record_id: str,
     confidence: float = Query(default=0.95),
+    task_id: str | None = None,
     store: Store = Depends(store_dep),
 ):
-    s = source(store, source_key)
+    s = source(store, source_key, task_id)
     owned_record(store, s, record_id, trading_date.isoformat(), model_id)
     if s["domain"] != "market":
         return dict(
@@ -1233,6 +1468,7 @@ def prediction_details(
     d = research_views.prediction_details(record_id, confidence, store)
     return dict(
         explanation=d["explanation"],
+        unit=s["unit"],
         range=d.get("range"),
         notice=d["notice"],
         explanation_unavailable=d.get("explanation_unavailable"),
@@ -1251,12 +1487,15 @@ class Command(BaseModel):
         "approve",
         "rollback",
         "reject",
+        "shadow",
         "analyze",
         "cancel",
         "retry",
         "final_audit",
+        "scenario",
     ]
     source_key: str
+    task_id: str | None = None
     date: Date
     model_id: str | None = None
     record_id: str | None = None
@@ -1273,6 +1512,8 @@ class Command(BaseModel):
     basis: Literal["latest", "snapshot"] = "latest"
     confirmed: bool = False
     context_version: str = ""
+    bid_ratio: float = Field(default=1, ge=0, le=1.5, allow_inf_nan=False)
+    fee: float = Field(default=0, ge=0, le=1000000, allow_inf_nan=False)
 
     @field_validator("until")
     @classmethod
@@ -1288,7 +1529,7 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
         raise HTTPException(403, "请从本站操作")
     if not b.actor.strip() or not b.reason.strip():
         raise ValueError("请填写操作人与依据")
-    s = source(store, b.source_key)
+    s = source(store, b.source_key, b.task_id)
     day = b.date.isoformat()
     if day not in s["dates"]:
         raise ValueError("日期不属于当前数据范围")
@@ -1305,13 +1546,16 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
         "approve": "审核模型",
         "rollback": "回滚版本",
         "reject": "拒绝候选",
+        "shadow": "保留观察版本",
         "analyze": "分析数据",
         "cancel": "取消任务",
         "retry": "重试任务",
         "final_audit": "执行最终评估",
+        "scenario": "保存量价测算",
     }
     details = dict(
         operation=operation,
+        task_id=s["task"],
         source_key=b.source_key,
         actor=b.actor,
         reason=b.reason,
@@ -1335,17 +1579,69 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
 
 
 def execute_command(b, request, store, s, day, m):
+    if b.action == "scenario":
+        view = context(
+            store,
+            b.source_key,
+            day,
+            b.model_id,
+            b.record_id,
+            b.mode,
+            b.until,
+            b.basis,
+            task_id=b.task_id,
+        )
+        if not b.context_version or b.context_version != view["context_version"]:
+            raise ValueError("观测已变化，请重新核对测算范围")
+        from .public_settlement import calculate
+
+        result = calculate(store, view, b.bid_ratio, b.fee)
+        if not result or not result["settled_intervals"]:
+            raise ValueError("请选择有完整小时观测的区域光伏日前预测记录")
+        sha = view["metadata"]["source_hash"]
+        oid = ml.add_object(
+            store,
+            "scenario",
+            dict(
+                source_key=b.source_key,
+                task=s["task"],
+                date=day,
+                model_id=view["model_id"],
+                record_id=view["record_id"],
+                source_revision_id=data_flow.revision_id(sha),
+                context_version=view["context_version"],
+                actor=b.actor,
+                reason=b.reason,
+                bid_ratio=b.bid_ratio,
+                fee=b.fee,
+                result=result,
+                evidence_snapshot=view["points"],
+                source_mode="public_reference",
+                production_eligible=False,
+            ),
+            sha,
+            view["record_id"],
+        )
+        ml.event(store, oid, "succeeded", source_key=b.source_key, task_id=s["task"])
+        store.db.commit()
+        return dict(id=oid, result=result)
     if b.action == "predict":
         if not m or not m["can_predict"]:
             raise ValueError("当前模型没有可执行的预测能力")
         if s["domain"] == "market":
-            return ml.prediction(
+            result = ml.prediction(
                 store,
                 m["id"],
                 day,
-                ml.splits()["tune"][0] <= day <= ml.splits()["tune"][1],
+                ml.get_object(store, m["id"], "model")["payload"]["splits"]["tune"][0]
+                <= day
+                <= ml.get_object(store, m["id"], "model")["payload"]["splits"]["tune"][
+                    1
+                ],
                 public_data.dataset()[0]["source_hash"],
             )
+            data_flow.reconcile(store, result["source_hash"])
+            return result
         scope = station_scope(s, day, b.mode, b.until)
         from .api import resolve_scope
 
@@ -1365,7 +1661,9 @@ def execute_command(b, request, store, s, day, m):
             raise ValueError("此数据范围尚未配置正式训练协议，不能使用市场电价协议代替")
         if not b.key:
             raise ValueError("训练提交缺少请求凭据，请刷新后重试")
-        ds = ml.register_dataset(store, public_data.dataset()[0]["source_hash"])
+        ds = ml.register_dataset(
+            store, public_data.dataset()[0]["source_hash"], s["task"]
+        )
         return ml.submit(store, ds["id"], b.alpha, b.key)
     if b.action in {"cancel", "retry"}:
         if s["domain"] != "market" or not b.job_id:
@@ -1401,7 +1699,15 @@ def execute_command(b, request, store, s, day, m):
         if not b.confirmed:
             raise ValueError("请先确认已经核对所选时段的原始数据")
         view = context(
-            store, b.source_key, day, b.model_id, b.record_id, b.mode, b.until, b.basis
+            store,
+            b.source_key,
+            day,
+            b.model_id,
+            b.record_id,
+            b.mode,
+            b.until,
+            b.basis,
+            task_id=b.task_id,
         )
         if not b.context_version or b.context_version != view["context_version"]:
             raise ValueError("所选预测或实际值已变化，请重新核对后保存")
@@ -1501,7 +1807,7 @@ def execute_command(b, request, store, s, day, m):
             return ml.confirm_feedback(store, f["id"], b.actor, b.reason)
         prop = ml.proposal(store, f["id"], b.alpha, b.actor, b.reason)
         return ml.train_proposal(store, prop["id"], b.key) if b.key else prop
-    if b.action in {"approve", "rollback", "reject"}:
+    if b.action in {"approve", "rollback", "reject", "shadow"}:
         if not m:
             raise ValueError("请先选择模型")
         if s["domain"] == "market":
@@ -1512,7 +1818,7 @@ def execute_command(b, request, store, s, day, m):
                 b.actor,
                 b.reason,
             )
-        if not m.get("candidate_id") or b.action == "reject":
+        if not m.get("candidate_id") or b.action in {"reject", "shadow"}:
             raise ValueError("当前模型没有可执行的此项审核操作")
         if b.action == "approve" and (
             not m["can_approve"] or m.get("approval_day") != day
@@ -1554,6 +1860,7 @@ def analyze_context(store, b):
         b.mode,
         b.until,
         b.basis,
+        task_id=b.task_id,
     )
     if b.context_version and b.context_version != c["context_version"]:
         raise ValueError("数据已更新，请重新核对后分析")
@@ -1596,6 +1903,7 @@ def analyze_context(store, b):
         "analysis",
         dict(
             source_key=b.source_key,
+            task=c["source"]["task"],
             source_mode=c["source"]["source_mode"],
             date=c["date"],
             model_id=c["model_id"],

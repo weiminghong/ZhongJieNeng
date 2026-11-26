@@ -4,6 +4,7 @@ import { Panel, Status } from "./components";
 import { businessText } from "./presentation";
 
 type Details = {
+  unit: string;
   explanation: {
     items: { name: string; value: number }[];
     prediction_mean: number;
@@ -20,12 +21,14 @@ type Details = {
 };
 export default function PredictionDetails({
   source,
+  task,
   date,
   model,
   record,
   revision,
 }: {
   source: string;
+  task: string;
   date: string;
   model: string;
   record: string;
@@ -34,6 +37,7 @@ export default function PredictionDetails({
   const [confidence, setConfidence] = useState("0.95");
   const q = new URLSearchParams({
     source_key: source,
+    task_id: task,
     trading_date: date,
     model_id: model,
     record_id: record,
@@ -53,14 +57,14 @@ export default function PredictionDetails({
             <>
               <p>
                 {r.data.explanation.method} · 日均预测{" "}
-                {fmt(r.data.explanation.prediction_mean, 3)} 元/MWh
+                {fmt(r.data.explanation.prediction_mean, 3)} {r.data.unit}
               </p>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>模型项</th>
-                      <th>日均贡献 / 元/MWh</th>
+                      <th>日均贡献 / {r.data.unit}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -98,8 +102,8 @@ export default function PredictionDetails({
               </div>
               {r.data.range ? (
                 <p>
-                  经验范围宽度 {fmt(r.data.range.mean_width, 3)} 元/MWh · 来自{" "}
-                  {r.data.range.calibration_points} 个调参样本，截止{" "}
+                  经验范围宽度 {fmt(r.data.range.mean_width, 3)} {r.data.unit} ·
+                  来自 {r.data.range.calibration_points} 个调参样本，截止{" "}
                   {r.data.range.calibration_end}。这不是未来结果的概率保证。
                 </p>
               ) : (

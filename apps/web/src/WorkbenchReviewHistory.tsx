@@ -15,12 +15,14 @@ type Review = {
 };
 export default function ReviewHistory({
   source,
+  task,
   date,
   mode,
   until,
   revision,
 }: {
   source: string;
+  task: string;
   date: string;
   mode: string;
   until: string;
@@ -29,6 +31,7 @@ export default function ReviewHistory({
   const [page, setPage] = useState(0);
   const q = new URLSearchParams({
     source_key: source,
+    task_id: task,
     trading_date: date,
     mode,
     until,

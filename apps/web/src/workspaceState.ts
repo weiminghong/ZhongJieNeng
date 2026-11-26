@@ -1,5 +1,6 @@
 export type Selection = {
   source: string;
+  task: string;
   date: string;
   tab: string;
   model: string;
@@ -12,6 +13,7 @@ export type Selection = {
 };
 export const defaultSelection: Selection = {
   source: "market:shandong",
+  task: "",
   date: "",
   tab: "overview",
   model: "",
@@ -38,6 +40,7 @@ export function readSelection(
     ...defaultSelection,
     ...stored,
     source,
+    task: p.get("task") || stored.task || "",
     date: p.get("date") || p.get("ml_date") || stored.date || "",
     tab: p.get("tab") || stored.tab || "overview",
   };
@@ -73,12 +76,19 @@ export function readSelection(
     s.record = p.get("ml_prediction") || stored.record || "";
   }
   if (legacySite) {
+    s.task = "";
     s.date = "";
     s.model = "";
     s.record = "";
     s.slot = null;
   }
   const slot = p.get("slot");
+  if (p.has("task") && p.get("task") !== stored.task) {
+    s.model = "";
+    s.record = "";
+    s.slot = null;
+    if (!p.has("date")) s.date = "";
+  }
   if (slot !== null && !legacySite) {
     const n = Number(slot);
     s.slot = Number.isInteger(n) && n >= 0 && n < 96 ? n : null;
@@ -90,6 +100,7 @@ export function readSelection(
 }
 export type Change =
   | { type: "source"; source: string }
+  | { type: "task"; task: string }
   | { type: "date"; date: string }
   | { type: "model"; model: string }
   | { type: "record"; record: string; model: string; date: string }
@@ -98,11 +109,24 @@ export type Change =
   | { type: "view"; mode: Selection["mode"]; until: string }
   | { type: "basis"; basis: Selection["basis"] }
   | { type: "window"; window: Selection["window"] }
-  | { type: "hydrate"; date: string; model: string; record: string };
+  | {
+      type: "hydrate";
+      date: string;
+      model: string;
+      record: string;
+      task?: string;
+    };
 export function selectionChange(s: Selection, c: Change): Selection {
   switch (c.type) {
     case "source":
       return { ...defaultSelection, source: c.source, tab: s.tab };
+    case "task":
+      return {
+        ...defaultSelection,
+        source: s.source,
+        task: c.task,
+        tab: s.tab,
+      };
     case "date":
       return { ...s, date: c.date, record: "", slot: null };
     case "model":
@@ -126,11 +150,18 @@ export function selectionChange(s: Selection, c: Change): Selection {
     case "window":
       return { ...s, window: c.window };
     case "hydrate":
-      return { ...s, date: c.date, model: c.model, record: c.record };
+      return {
+        ...s,
+        date: c.date,
+        model: c.model,
+        record: c.record,
+        task: c.task ?? s.task,
+      };
   }
 }
 export function selectionUrl(s: Selection): string {
   const p = new URLSearchParams({ source: s.source, tab: s.tab });
+  if (s.task) p.set("task", s.task);
   if (s.date) p.set("date", s.date);
   if (s.slot !== null) p.set("slot", String(s.slot));
   if (s.mode !== "post") {

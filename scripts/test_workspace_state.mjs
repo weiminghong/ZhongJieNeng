@@ -33,6 +33,14 @@ const selected = {
   record: "private-record",
   slot: 48,
 };
+const taskChanged = selectionChange(
+  { ...selected, task: "rt_price_day_ahead_reference" },
+  { type: "task", task: "pv_day_ahead_reference" },
+);
+assert.equal(taskChanged.model, "");
+assert.equal(taskChanged.record, "");
+assert.equal(taskChanged.date, "");
+assert.equal(taskChanged.slot, null);
 const switched = selectionChange(selected, {
   type: "source",
   source: "station:lanneng:synthetic",

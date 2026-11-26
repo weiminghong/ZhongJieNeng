@@ -176,7 +176,7 @@ export function businessText(value: unknown): string {
     RSI: "人工复核",
     serving: "页面数据",
     NumPy: "",
-    Ridge: "电价预测",
+    Ridge: "线性模型",
     SQL: "",
     JSON: "",
     SHA256: "版本校验",

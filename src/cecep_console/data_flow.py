@@ -88,7 +88,8 @@ def reconcile(store, source_hash):
         points = []
         for saved in p["points"]:
             observed = days[p["date"]].get(saved["slot"])
-            points.append(dict(slot=saved["slot"], predicted=saved["predicted"], actual=observed["rt_price"] if observed else None,
+            from .task_catalog import target
+            points.append(dict(slot=saved["slot"], predicted=saved["predicted"], actual=target(p["task"],days[p["date"]],saved["slot"]),
                                source_line=observed["source_line"] if observed else None,
                                snapshot_actual=saved["actual"], snapshot_source_line=saved["source_line"]))
         paired = [v for v in points if v["actual"] is not None]
@@ -110,7 +111,7 @@ def reconcile(store, source_hash):
 
 
 def latest_observation(store, prediction_id):
-    row = store.db.execute("SELECT observation_id FROM ml_observation_registry WHERE prediction_id=? ORDER BY rowid DESC LIMIT 1", (prediction_id,)).fetchone()
+    row = store.db.execute("SELECT observation_id FROM ml_observations WHERE prediction_id=? ORDER BY created_at DESC,observation_id DESC LIMIT 1", (prediction_id,)).fetchone()
     return ml.get_object(store, row[0], "observation_match") if row else None
 
 

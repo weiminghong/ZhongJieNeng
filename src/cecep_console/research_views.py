@@ -37,7 +37,7 @@ def schema(store: Store = Depends(store_dep)):
     roles={"ml_source_registry":"原始数据版本","ml_dataset_registry":"冻结训练数据集","ml_model_registry":"模型与权重版本","ml_prediction_registry":"预测记录与输入版本","ml_observation_registry":"后续观测核对","ml_feedback_registry":"人工反馈","ml_retrain_registry":"重训提案","ml_audit_registry":"最终审计"}
     tables=[]
     for name in sorted(REGISTRY_TABLES):
-        tables.append(dict(name=name,role=roles[name],rows=store.db.execute(f"SELECT count(*) FROM {name}").fetchone()[0],
+        tables.append(dict(name=name,role=roles.get(name,roles.get(name.removesuffix("_v2"),"研究记录")),rows=store.db.execute(f"SELECT count(*) FROM {name}").fetchone()[0],
                            columns=[dict(r) for r in store.db.execute(f"PRAGMA table_info({name})")],
                            foreign_keys=[dict(r) for r in store.db.execute(f"PRAGMA foreign_key_list({name})")],
                            indexes=[dict(r) for r in store.db.execute(f"PRAGMA index_list({name})")]))
@@ -103,17 +103,19 @@ def event_history(store, limit=40):
     return result
 
 
-def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0):
+def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0,task=None):
     clauses = ["1=1"]
     params = []
     if model_id:
         clauses.append("d.model_version_id=?"); params.append(model_id)
     if trading_date:
         clauses.append("d.trading_date=?"); params.append(trading_date)
+    if task:
+        clauses.append("d.model_version_id IN (SELECT model_version_id FROM ml_models WHERE task=?)");params.append(task)
     params.append(limit)
     params.append(offset)
     result = []
-    for r in store.db.execute("SELECT o.object_id,o.source_hash,o.payload_json,o.created_at FROM ml_prediction_registry d JOIN ml_object o ON o.object_id=d.prediction_id WHERE "+" AND ".join(clauses)+" ORDER BY o.rowid DESC LIMIT ? OFFSET ?", params):
+    for r in store.db.execute("SELECT o.object_id,o.source_hash,o.payload_json,o.created_at FROM ml_predictions d JOIN ml_object o ON o.object_id=d.prediction_id WHERE "+" AND ".join(clauses)+" ORDER BY o.rowid DESC LIMIT ? OFFSET ?", params):
         p = json.loads(r[2])
         result.append(dict(id=r[0], display_name=ml.get_object(store,r[0])["display_name"], model_name=ml.get_object(store,p["model_id"])["display_name"], source_hash=r[1], created_at=r[3], model_id=p["model_id"], date=p["date"],
                            scores=p["scores"], validation_only=p["validation_only"], logical_cutoff=p["logical_cutoff"], count=len(p["points"])))
@@ -124,7 +126,7 @@ def prediction_list(store, model_id=None, trading_date=None, limit=50, offset=0)
 def predictions(model_id: str | None = None, trading_date: date | None = None,
                 limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0, le=1000000), store: Store = Depends(store_dep)):
     day = trading_date.isoformat() if trading_date else None
-    total = store.db.execute("SELECT count(*) FROM ml_prediction_registry WHERE (? IS NULL OR model_version_id=?) AND (? IS NULL OR trading_date=?)", (model_id,model_id,day,day)).fetchone()[0]
+    total = store.db.execute("SELECT count(*) FROM ml_predictions WHERE (? IS NULL OR model_version_id=?) AND (? IS NULL OR trading_date=?)", (model_id,model_id,day,day)).fetchone()[0]
     return dict(records=prediction_list(store, model_id, day, limit, offset), total=total, offset=offset, limit=limit)
 
 
@@ -136,11 +138,11 @@ def summary(store: Store = Depends(store_dep)):
     model = ml.get_object(store, active_id, "model") if active_id else None
     recent = prediction_list(store, active_id, limit=1) if active_id else []
     latest = ml.get_object(store, recent[0]["id"], "prediction") if recent else None
-    model_count = store.db.execute("SELECT count(*) FROM ml_model_registry").fetchone()[0]
+    model_count = store.db.execute("SELECT count(*) FROM ml_models").fetchone()[0]
     jobs = [ml.job(store, r[0]) for r in store.db.execute("SELECT job_id FROM ml_job ORDER BY rowid DESC LIMIT 50")]
     return dict(catalog=catalog, checked_at=ml.now(), active_model=model, latest_prediction=latest,
                 model_count=model_count, jobs=jobs, worker=ml.state(store, "worker"), monitor=ml.state(store, "monitor"),
-                events=event_history(store), prediction_count=store.db.execute("SELECT count(*) FROM ml_prediction_registry").fetchone()[0],
+                events=event_history(store), prediction_count=store.db.execute("SELECT count(*) FROM ml_predictions").fetchone()[0],
                 production_eligible=False, time_policy="historical_assumed")
 
 
@@ -225,7 +227,8 @@ def compare(store, model_id, partition):
         if data is None:
             raise ValueError("该组尚无具备成功退出记录的可比模型")
     start, end = p["splits"][partition]
-    expected = ((date.fromisoformat(end)-date.fromisoformat(start)).days+1)*96
+    from .task_catalog import slots
+    expected = ((date.fromisoformat(end)-date.fromisoformat(start)).days+1)*len(slots(p["task"]))
     daily = []
     for day in np.unique(data["days"]):
         mask = data["days"] == day
@@ -270,13 +273,15 @@ def prediction_details(oid: str, confidence: float = Query(default=.95), store: 
     except ValueError as exc:
         meta, days, source_error = None, None, str(exc)
     if m["algorithm"] == "ridge" and days is not None:
-        x = np.array([ml.features_for(days, p["date"], s) for s in range(96)], dtype=float)
+        from . import task_catalog as tasks
+        x = np.array([ml.features_for(days,p["date"],s) if m["task"]==ml.TASK else tasks.features(days,p["date"],s,m["task"]) for s in tasks.slots(m["task"])], dtype=float)
         if hashlib.sha256(x.tobytes()).hexdigest() != p["feature_value_hash"]:
             raise ValueError("输入特征校验不符，不能展示该记录的模型解释")
-        a = ml.validate_model(ml.read_npz(m["weights"]))
+        a = ml.validate_model(ml.read_npz(m["weights"]),len(m["policy"]["features"]))
         contributions = ml.transform(x, a["medians"], a["mean"], a["scale"])*a["coefficients"]
-        groups = [("历史同时段电价", [0, 1, 2]), ("历史日均与极值", [3, 4, 5, 6]), ("日内时段", [7, 8]), ("星期", [9, 10]), ("月份", [11, 12])]
-        items = [dict(name=name, value=float(contributions[:, indices+[i+13 for i in indices]].sum(1).mean())) for name, indices in groups]
+        groups = [("历史同时段目标量", [0, 1, 2]), ("历史日均与极值", [3, 4, 5, 6]), ("日内时段", [7, 8]), ("星期", [9, 10]), ("月份", [11, 12])]
+        if len(m["policy"]["features"])>13:groups.append(("近期已知观测",[13,14,15]))
+        items = [dict(name=name, value=float(contributions[:, indices+[i+len(m["policy"]["features"]) for i in indices]].sum(1).mean())) for name, indices in groups]
         items.append(dict(name="模型截距", value=float(a["intercept"])))
         predicted_mean = float(np.mean([r["predicted"] for r in p["points"]]))
         if not np.isclose(sum(i["value"] for i in items), predicted_mean, rtol=1e-9, atol=1e-8):

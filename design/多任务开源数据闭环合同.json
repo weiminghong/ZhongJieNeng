@@ -1,0 +1,162 @@
+{
+  "contract_id": "cecep-public-multitask-v1",
+  "phase": "frozen_before_execution",
+  "source": {
+    "path": "/home/priv/cecep_rsi_demo/vendor/price_forecast/data/价格预测数据集.csv",
+    "sha256": "5d00ffd26a75078c521ebecbd5aa8eba172d1eaf2816e8b64f05d08a8eee7954",
+    "rows": 71520,
+    "days": 745,
+    "interval_minutes": 15,
+    "region": "Shandong aggregated market",
+    "source_kind": "public_reference",
+    "readonly": true
+  },
+  "splits": {
+    "train": [
+      "2024-01-08",
+      "2025-08-30"
+    ],
+    "tune": [
+      "2025-09-01",
+      "2025-09-29"
+    ],
+    "promotion": [
+      "2025-10-01",
+      "2025-11-29"
+    ],
+    "final_audit": [
+      "2025-12-01",
+      "2026-01-14"
+    ],
+    "random_shuffle": false,
+    "final_audit_policy": "freeze candidate before first use; never reuse as fresh independent evidence after tuning on results",
+    "eligible_row_counts": "pending builder validation; do not invent",
+    "boundary_policy": "One excluded day between partitions; training-label and parameter-selection event end must precede the next forecast cutoff. Retraining moves comparisons beyond its new training/selection cutoff."
+  },
+  "new_tasks": {
+    "pv_day_ahead_reference": {
+      "name": "区域光伏日前预测",
+      "unit": "MW",
+      "display_unit": "MW",
+      "target": "pv_actual_mw",
+      "hourly": false,
+      "intraday": false,
+      "target_points": 96,
+      "feature_count": 13,
+      "initial_baseline": "seasonal_naive_d2"
+    },
+    "pv_intraday_reference": {
+      "name": "区域光伏日内预测",
+      "unit": "MW",
+      "display_unit": "MW",
+      "target": "pv_actual_mw",
+      "hourly": false,
+      "intraday": true,
+      "target_points": 96,
+      "feature_count": 16,
+      "initial_baseline": "recent_observation"
+    },
+    "da_price_reference": {
+      "name": "日前小时电价预测",
+      "unit": "CNY/MWh",
+      "display_unit": "元/MWh",
+      "target": "da_price",
+      "hourly": true,
+      "intraday": false,
+      "target_points": 24,
+      "feature_count": 13,
+      "initial_baseline": "seasonal_naive_d2"
+    },
+    "prebid_spread_reference": {
+      "name": "申报前小时价差预测",
+      "unit": "CNY/MWh",
+      "display_unit": "元/MWh",
+      "target": "spread",
+      "hourly": true,
+      "intraday": false,
+      "target_points": 24,
+      "feature_count": 13,
+      "initial_baseline": "zero_spread"
+    },
+    "intraday_spread_reference": {
+      "name": "日内小时价差预测",
+      "unit": "CNY/MWh",
+      "display_unit": "元/MWh",
+      "target": "spread",
+      "hourly": true,
+      "intraday": true,
+      "target_points": 24,
+      "feature_count": 16,
+      "initial_baseline": "zero_spread"
+    }
+  },
+  "budget": {
+    "device": "CPU",
+    "threads_per_job": 4,
+    "concurrent_training_jobs": 1,
+    "timeout_minutes_per_job": 30,
+    "new_main_jobs": 10,
+    "alphas": [
+      1,
+      10
+    ],
+    "seed": 42
+  },
+  "review": {
+    "actor": "Codex技术复核（用户授权）",
+    "meaning": "Agent checks source identity, observed values and task alignment; not a fabricated human business sign-off",
+    "day": "2025-09-29",
+    "label_changes": false,
+    "retrain_change": "Fixed alpha 1 to 10 on the same dataset; not selected by promotion or final results"
+  },
+  "evaluation": {
+    "candidate": "alpha=10, frozen before first run",
+    "promotion": {
+      "primary": "MAE",
+      "secondary": [
+        "RMSE",
+        "MBE",
+        "negative-price slices",
+        "spike slices",
+        "coverage"
+      ],
+      "matched_mask": true,
+      "independent_unit": "trading day",
+      "mapes_used": false,
+      "source_hash_and_feature_value_hash_separate": true,
+      "source_file_forecasts_are_not_a_matched_baseline": true,
+      "uncertainty": {
+        "method": "paired moving-block bootstrap by trading day",
+        "block_days": 7,
+        "replicates": 2000,
+        "confidence": 0.95,
+        "seed": 42,
+        "interpretation": "interval crossing zero means inconclusive, not equivalence"
+      }
+    },
+    "gate": {
+      "initial": "D-2 baseline only; no gain claim",
+      "upgrade": "paired 7-day block bootstrap upper95(delta MAE)<0 and RMSE<=incumbent",
+      "actor_verification": "intranet_declared"
+    },
+    "terminal_audit": "One frozen alpha=10 candidate per new task; never reopen the existing RT-price final audit"
+  },
+  "data_semantics": {
+    "power": "Original signed public regional PV output; no label clipping or synthetic replacement",
+    "day_ahead": "Native hour-end DA or mean of four explicit quarters; partial hours excluded",
+    "spread": "Complete-hour RT mean minus hour-aligned DA, not the final RT quarter",
+    "intraday": "Rolling historical replay, using event-time observations delayed at least one hour; original arrival times unverified",
+    "source_forecast_columns": "Excluded from train and inference inputs"
+  },
+  "reuse": {
+    "task": "rt_price_day_ahead_reference",
+    "policy": "Preserve and validate existing trained model, retraining lineage and consumed final audit; no identical reruns"
+  },
+  "business": {
+    "rule": "Saved day-ahead PV forecast to hourly DA plus quarter-hour RT deviation settlement",
+    "negative_forecast_bid": "max(forecast,0) only in bidding rule, never mutate model output or labels",
+    "controls": "All-RT settlement on the same complete-hour observations and fees",
+    "qualification": "Regional historical research sandbox, not site production or certified market settlement"
+  },
+  "outputs": "/home/priv/ZhongJieNeng/runtime/ml/runs/public-loop-20261126"
+}

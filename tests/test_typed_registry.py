@@ -39,7 +39,7 @@ class TypedRegistryTests(unittest.TestCase):
             before=[tuple(r) for r in old.db.execute("SELECT * FROM ml_object ORDER BY rowid")]
             checksums=[tuple(r) for r in old.db.execute("SELECT version,checksum FROM schema_migration")]
             old.initialize()
-            self.assertEqual(old.inspect()["schema_version"],6)
+            self.assertEqual(old.inspect()["schema_version"],7)
             self.assertEqual([tuple(r) for r in old.db.execute("SELECT * FROM ml_object ORDER BY rowid")],before)
             self.assertEqual([tuple(r) for r in old.db.execute("SELECT version,checksum FROM schema_migration WHERE version<=5")],checksums)
             joined=old.db.execute("SELECT p.prediction_id,m.model_version_id,d.dataset_id FROM ml_prediction_registry p JOIN ml_model_registry m USING(model_version_id) JOIN ml_dataset_registry d USING(dataset_id)").fetchone()
@@ -79,8 +79,8 @@ class TypedRegistryTests(unittest.TestCase):
         self.assertIn("ml_observation_prediction",plan)
         with TestClient(create_app()) as client:
             s=client.get("/api/v1/research/schema").json()
-            self.assertEqual(s["version"],6)
-            self.assertEqual(len(s["tables"]),8)
+            self.assertEqual(s["version"],7)
+            self.assertEqual(len(s["tables"]),15)
             self.assertEqual(s["foreign_key_errors"],[])
 
     def test_prediction_cannot_claim_different_model_weights(self):

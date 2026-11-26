@@ -50,8 +50,17 @@ type Source = {
   available: boolean;
   notice: string;
   can_train: boolean;
+  target_points?: number;
+  tasks?: {
+    id: string;
+    name: string;
+    unit: string;
+    points: number;
+    intraday: boolean;
+  }[];
 };
 type Model = {
+  alpha: number | null;
   id: string;
   name: string;
   state: string;
@@ -65,6 +74,9 @@ type Model = {
   score: Score | null;
 };
 type Score = {
+  direction_accuracy?: number;
+  balanced_direction_accuracy?: number;
+  positive_output?: { n: number; mae: number | null };
   n: number;
   mae: number | null;
   rmse: number | null;
@@ -127,6 +139,14 @@ type Context = {
     detail: { reason?: string; stage?: string; error?: string };
   }[];
   flow: { name: string; state: string; detail: string }[];
+  related?: {
+    name: string;
+    date: string;
+    model: string;
+    record: string;
+    slot: number;
+    tab: string;
+  }[];
   checked_at: string;
   capabilities?: {
     train: boolean;
@@ -176,6 +196,7 @@ export default function Workbench() {
   );
   const params = new URLSearchParams({
     source_key: s.source,
+    task_id: s.task,
     mode: s.mode,
     until: s.until,
     basis: s.basis,
@@ -198,6 +219,7 @@ export default function Workbench() {
   const [message, setMessage] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [alpha, setAlpha] = useState(1);
+  const [retrainAlpha, setRetrainAlpha] = useState(10);
   const [casePage, setCasePage] = useState(0);
   const [confirmedKey, setConfirmedKey] = useState("");
   const [auditConfirmedKey, setAuditConfirmedKey] = useState("");
@@ -208,7 +230,9 @@ export default function Workbench() {
     c?.cases.find((x) => x.slot === s.slot) ||
     (s.slot === null ? c?.cases[0] : undefined);
   const scopeKey = [
+    s.task,
     s.source,
+    s.task,
     s.date,
     s.model,
     s.record,
@@ -238,7 +262,6 @@ export default function Workbench() {
     setError("");
     setMessage("");
     setAnswer("");
-    setCasePage(0);
   }, [
     s.source,
     s.date,
@@ -250,26 +273,35 @@ export default function Workbench() {
     s.slot,
     s.basis,
   ]);
+  useEffect(() => setCasePage(0), [c?.context_version]);
   useEffect(() => {
     if (
       c &&
       c.source.key === s.source &&
-      (c.date !== s.date ||
+      (c.source.task !== s.task ||
+        c.date !== s.date ||
         (c.model_id || "") !== s.model ||
         (c.record_id || "") !== s.record)
     )
       change({
         type: "hydrate",
+        task: c.source.task,
         date: c.date,
         model: c.model_id || "",
         record: c.record_id || "",
       });
-  }, [c?.source.key, c?.date, c?.model_id, c?.record_id]);
+  }, [c?.source.key, c?.source.task, c?.date, c?.model_id, c?.record_id]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("cecep-theme", theme);
   }, [theme]);
   const selectedModel = c?.models.find((m) => m.id === s.model);
+  const selectedRetrainAlpha =
+    retrainAlpha === selectedModel?.alpha
+      ? selectedModel?.alpha === 1
+        ? 10
+        : 1
+      : retrainAlpha;
   const title =
     s.tab === "settings"
       ? "服务设置"
@@ -285,7 +317,9 @@ export default function Workbench() {
       return;
     }
     const note =
-      (["approve", "rollback", "reject", "final_audit"].includes(action)
+      (["approve", "rollback", "reject", "final_audit", "shadow"].includes(
+        action,
+      )
         ? approvalReason
         : reason
       ).trim() ||
@@ -309,6 +343,7 @@ export default function Workbench() {
         {
           action,
           source_key: s.source,
+          task_id: s.task,
           date: s.date,
           model_id: s.model || null,
           record_id: s.record || null,
@@ -380,7 +415,9 @@ export default function Workbench() {
     <Chart
       theme={theme}
       label={kind === "target" ? "当前范围预测与实际值" : "当前范围电价"}
-      onPoint={(slot) => change({ type: "slot", slot })}
+      onPoint={(index) =>
+        change({ type: "slot", slot: c?.points[index]?.slot ?? index })
+      }
       option={() => ({
         ...baseOption(),
         xAxis: {
@@ -539,6 +576,21 @@ export default function Workbench() {
               </select>
             </label>
             <label>
+              <span>预测任务</span>
+              <select
+                aria-label="预测任务"
+                value={s.task || c?.source.task || ""}
+                onChange={(e) => change({ type: "task", task: e.target.value })}
+              >
+                <option value="">选择任务</option>
+                {c?.source.tasks?.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               <span>日期</span>
               <select
                 aria-label="交易日期"
@@ -655,7 +707,9 @@ export default function Workbench() {
                                   c.points.filter((p) => p.actual !== null)
                                     .length
                                 }
-                                <small>/96 时段</small>
+                                <small>
+                                  /{c.source.target_points || 96} 时段
+                                </small>
                               </strong>
                             </div>
                             <div>
@@ -841,7 +895,10 @@ export default function Workbench() {
                             </div>
                             {!selectedModel?.can_predict && (
                               <p className="research-help">
-                                所选版本仅有参考记录，尚无可运行的模型服务；不会使用其他模型替代。
+                                {businessText(
+                                  selectedModel?.scope_label ||
+                                    "当前任务尚无可运行模型，请先完成训练并选择版本。",
+                                )}
                               </p>
                             )}
                           </Panel>
@@ -892,6 +949,7 @@ export default function Workbench() {
                                     "/api/v1/workspace/export?" +
                                     new URLSearchParams({
                                       source_key: s.source,
+                                      task_id: s.task,
                                       trading_date: s.date,
                                       model_id: s.model,
                                       record_id: s.record,
@@ -913,6 +971,7 @@ export default function Workbench() {
                           {c.record_id && (
                             <PredictionDetails
                               source={s.source}
+                              task={s.task}
                               date={s.date}
                               model={s.model}
                               record={s.record}
@@ -927,7 +986,7 @@ export default function Workbench() {
                             {note("训练依据")}
                             <div className="research-filters">
                               <label>
-                                训练参数
+                                正则强度
                                 <select
                                   value={alpha}
                                   onChange={(e) =>
@@ -1018,6 +1077,15 @@ export default function Workbench() {
                                     <th>均方根误差</th>
                                     <th>平均偏差</th>
                                     <th>共同样本</th>
+                                    {c.source.task.includes("spread") && (
+                                      <>
+                                        <th>方向命中率</th>
+                                        <th>各方向平均命中率</th>
+                                      </>
+                                    )}
+                                    {c.source.task.startsWith("pv_") && (
+                                      <th>正出力时段误差 / MW</th>
+                                    )}
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1034,6 +1102,39 @@ export default function Workbench() {
                                         {fmt(r.score.mbe, 3)} {c.source.unit}
                                       </td>
                                       <td>{r.n}</td>
+                                      {c.source.task.includes("spread") && (
+                                        <>
+                                          <td>
+                                            {r.score.direction_accuracy ===
+                                            undefined
+                                              ? "—"
+                                              : fmt(
+                                                  r.score.direction_accuracy *
+                                                    100,
+                                                  1,
+                                                ) + "%"}
+                                          </td>
+                                          <td>
+                                            {r.score
+                                              .balanced_direction_accuracy ===
+                                            undefined
+                                              ? "—"
+                                              : fmt(
+                                                  r.score
+                                                    .balanced_direction_accuracy *
+                                                    100,
+                                                  1,
+                                                ) + "%"}
+                                          </td>
+                                        </>
+                                      )}
+                                      {c.source.task.startsWith("pv_") && (
+                                        <td>
+                                          {fmt(r.score.positive_output?.mae, 3)}{" "}
+                                          · {r.score.positive_output?.n ?? 0}{" "}
+                                          时段
+                                        </td>
+                                      )}
                                     </tr>
                                   ))}
                                 </tbody>
@@ -1182,6 +1283,29 @@ export default function Workbench() {
                                             ))}
                                           </select>
                                         </label>
+                                        <label>
+                                          重训正则强度
+                                          <select
+                                            aria-label="重训正则强度"
+                                            value={selectedRetrainAlpha}
+                                            onChange={(e) =>
+                                              setRetrainAlpha(
+                                                Number(e.target.value),
+                                              )
+                                            }
+                                          >
+                                            {[0.1, 1, 10, 100]
+                                              .filter(
+                                                (v) =>
+                                                  v !== selectedModel?.alpha,
+                                              )
+                                              .map((v) => (
+                                                <option key={v} value={v}>
+                                                  {v}
+                                                </option>
+                                              ))}
+                                          </select>
+                                        </label>
                                         <button
                                           disabled={
                                             !!busy ||
@@ -1193,7 +1317,7 @@ export default function Workbench() {
                                               {
                                                 feedback_id:
                                                   selectedCase.feedback_id,
-                                                alpha,
+                                                alpha: selectedRetrainAlpha,
                                                 key: crypto.randomUUID(),
                                               },
                                               "已按复核提案提交重训",
@@ -1223,6 +1347,7 @@ export default function Workbench() {
                               s.until
                             }
                             source={s.source}
+                            task={s.task}
                             date={s.date}
                             mode={s.mode}
                             until={s.until}
@@ -1237,6 +1362,25 @@ export default function Workbench() {
                             }
                           >
                             {note("审批依据", true)}
+                            {c.source.domain === "market" && (
+                              <button
+                                disabled={
+                                  !!busy ||
+                                  !selectedModel?.trained ||
+                                  !actor.trim() ||
+                                  !approvalReason.trim()
+                                }
+                                onClick={() =>
+                                  void act(
+                                    "shadow",
+                                    {},
+                                    "已保留为研究观察版本，未替换研究主版本",
+                                  )
+                                }
+                              >
+                                保留为观察版本
+                              </button>
+                            )}
                             <div className="research-filters">
                               <button
                                 disabled={
@@ -1441,6 +1585,23 @@ export default function Workbench() {
                             </div>
                           </Panel>
                           <Panel title="来源、模型与记录归属">
+                            {c.related?.map((x) => (
+                              <button
+                                key={x.name}
+                                onClick={() => {
+                                  change({
+                                    type: "record",
+                                    record: x.record,
+                                    model: x.model,
+                                    date: x.date,
+                                  });
+                                  change({ type: "slot", slot: x.slot });
+                                  change({ type: "tab", tab: x.tab });
+                                }}
+                              >
+                                {x.name} · {x.date}
+                              </button>
+                            ))}
                             <dl className="research-facts">
                               <div>
                                 <dt>数据范围</dt>
@@ -1483,11 +1644,20 @@ export default function Workbench() {
                           <p>
                             此页沿用现有数据范围。市场电价只能用于价差情景，场站收益还需要合约与规则；两者不互相替代。
                           </p>
+                          {note("测算保存依据")}
                           <Scenario
                             key={s.source}
                             selection={s}
                             revision={`${revision}:${c.context_version}`}
                             contextVersion={c.context_version}
+                            canSave={!!actor.trim() && !!reason.trim() && !busy}
+                            save={(parameters) =>
+                              void act(
+                                "scenario",
+                                parameters,
+                                "量价测算已保存并关联所选预测、观测与规则",
+                              )
+                            }
                           />
                         </Panel>
                       )}
@@ -1635,15 +1805,21 @@ function Scenario({
   selection: s,
   revision,
   contextVersion,
+  canSave,
+  save,
 }: {
   selection: Selection;
   revision: string;
   contextVersion: string;
+  canSave: boolean;
+  save: (parameters: Record<string, unknown>) => void;
 }) {
   const [quantity, setQuantity] = useState(1);
   const [fee, setFee] = useState(0);
+  const [bidRatio, setBidRatio] = useState(1);
   const p = new URLSearchParams({
     source_key: s.source,
+    task_id: s.task,
     trading_date: s.date,
     mode: s.mode,
     until: s.until,
@@ -1651,10 +1827,39 @@ function Scenario({
     expected_version: contextVersion,
     quantity: String(quantity),
     fee: String(fee),
+    bid_ratio: String(bidRatio),
   });
   if (s.model) p.set("model_id", s.model);
   if (s.record) p.set("record_id", s.record);
   const r = useResource<{
+    settlement?: {
+      value: number | null;
+      reference: number | null;
+      delta: number | null;
+      settled_intervals: number;
+      excluded_intervals: number;
+      negative_intervals: number;
+      rule: string;
+      notice: string;
+      hours: {
+        hour: number;
+        bid_mwh: number;
+        actual_mwh: number;
+        value: number;
+        reference: number;
+      }[];
+    } | null;
+    history?: {
+      name: string;
+      model_name: string;
+      created_at: string;
+      value: number;
+      delta: number;
+      intervals: number;
+      bid_ratio: number;
+      fee: number;
+      current_observation: boolean;
+    }[];
     available: boolean;
     notice: string;
     quantity: number;
@@ -1689,6 +1894,108 @@ function Scenario({
       <Status loading={r.loading} error={r.error} />
       {r.data && (
         <>
+          {r.data.settlement && (
+            <section>
+              <h3>所选日前出力预测的历史结算</h3>
+              <label>
+                预测申报系数
+                <input
+                  aria-label="预测申报系数"
+                  type="number"
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  value={bidRatio}
+                  onChange={(e) => setBidRatio(Number(e.target.value))}
+                />
+              </label>
+              <p>{r.data.settlement.rule}</p>
+              <p className="research-help">{r.data.settlement.notice}</p>
+              <div className="research-metrics">
+                <div>
+                  <span>预测申报情景 / 元</span>
+                  <strong>{fmt(r.data.settlement.value, 2)}</strong>
+                </div>
+                <div>
+                  <span>全实时对照 / 元</span>
+                  <strong>{fmt(r.data.settlement.reference, 2)}</strong>
+                </div>
+                <div>
+                  <span>同范围差额 / 元</span>
+                  <strong>{fmt(r.data.settlement.delta, 2)}</strong>
+                </div>
+                <div>
+                  <span>完整结算时段</span>
+                  <strong>{r.data.settlement.settled_intervals}/96</strong>
+                </div>
+              </div>
+              <p className="research-help">
+                未结算 {r.data.settlement.excluded_intervals} 个时段；保留{" "}
+                {r.data.settlement.negative_intervals} 个源负出力观测。
+              </p>
+              <button
+                disabled={
+                  !canSave ||
+                  !r.data.settlement.settled_intervals ||
+                  r.refreshing
+                }
+                onClick={() => save({ bid_ratio: bidRatio, fee })}
+              >
+                保存当前量价测算
+              </button>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>小时</th>
+                      <th>预测申报 / MWh</th>
+                      <th>源实绩 / MWh</th>
+                      <th>测算净额 / 元</th>
+                      <th>全实时对照 / 元</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.data.settlement.hours.map((h) => (
+                      <tr key={h.hour}>
+                        <td>
+                          {String(h.hour).padStart(2, "0")}:00–
+                          {String(h.hour + 1).padStart(2, "0")}:00
+                        </td>
+                        <td>{fmt(h.bid_mwh, 3)}</td>
+                        <td>{fmt(h.actual_mwh, 3)}</td>
+                        <td>{fmt(h.value, 2)}</td>
+                        <td>{fmt(h.reference, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+          {!!r.data.history?.length && (
+            <section>
+              <h3>已保存的量价测算</h3>
+              {r.data.history.map((h, i) => (
+                <article className="unified-review-history" key={i}>
+                  <strong>
+                    {h.name} · {businessText(h.model_name)}
+                  </strong>
+                  <p>
+                    {stamp(h.created_at)} · 系数 {h.bid_ratio} · 费用 {h.fee}{" "}
+                    元/MWh · {h.intervals} 个时段
+                  </p>
+                  <p>
+                    净额 {fmt(h.value, 2)} 元 · 与全实时对照差额{" "}
+                    {fmt(h.delta, 2)} 元 ·{" "}
+                    {h.current_observation
+                      ? "与当前观测版本相同"
+                      : "保存时的历史观测版本"}
+                  </p>
+                </article>
+              ))}
+            </section>
+          )}
+          <h3>假设电量的价差敞口</h3>
           <p>{r.data.notice}</p>
           <p>
             所选范围的假设价差敞口：{fmt(r.data.value, 2)} 元 · {r.data.points}{" "}
@@ -1736,6 +2043,7 @@ function HistoryAnalysis({
   const [days, setDays] = useState(14);
   const q = new URLSearchParams({
     source_key: s.source,
+    task_id: s.task,
     trading_date: s.date,
     days: String(days),
     mode: s.mode,
