@@ -189,6 +189,8 @@ def get_object(store, oid, kind=None):
             prefix = "近期已知观测基线"
         if family == "zero_spread":
             prefix = "零价差参考"
+    if family == "ridge" and payload.get("output_bounds"):
+        prefix = tasks.spec(payload["task"])["name"] + "（出力约束修正）"
     label = (
         f"{prefix}（第{n}版）"
         if r["kind"] in {"model", "dataset", "source_revision"}
@@ -503,12 +505,24 @@ def paired_ci(days, candidate_errors, baseline_errors):
     )
 
 
-def evaluate(a, arrays, partitions=("tune", "promotion"), task=TASK):
+def bounded_outputs(a, data, task, bounds=None):
+    result = outputs(a, data, task)
+    if bounds:
+        if (
+            not task.startswith("pv_")
+            or bounds.get("kind") != "train_signed_power_floor_v1"
+        ):
+            raise ValueError("出力约束与任务不匹配")
+        result["ridge"] = np.maximum(result["ridge"], bounds["lower"])
+    return result
+
+
+def evaluate(a, arrays, partitions=("tune", "promotion"), task=TASK, bounds=None):
     report = {}
     for part in partitions:
         data = arrays[part]
         y = data["y"]
-        predictions = outputs(a, data, task)
+        predictions = bounded_outputs(a, data, task, bounds)
         report[part] = dict(
             rows=len(y),
             days=len(np.unique(data["days"])),
@@ -595,6 +609,12 @@ def submit(store, dataset_id, alpha, key, parent=None, proposal_id=None):
     )
     if ds["payload"]["policy"].get("engine"):
         config["engine"] = ds["payload"]["policy"]["engine"]
+    if proposal_id:
+        recipe = get_object(store, proposal_id, "proposal")["payload"].get(
+            "output_recipe"
+        )
+        if recipe:
+            config["output_recipe"] = recipe
     prior = store.db.execute(
         "SELECT job_id FROM ml_job WHERE idempotency_key=?", (key,)
     ).fetchone()
@@ -679,13 +699,26 @@ def execute(store, jid):
         stage="按共同标签掩码评估；最终审计集封存",
         completed_units=counts["train"]["included"],
     )
-    report = evaluate(loaded, arrays, task=task)
+    bounds = (
+        dict(
+            kind="train_signed_power_floor_v1",
+            lower=float(np.quantile(arrays["train"]["y"], 0.001)),
+            quantile=0.001,
+        )
+        if j["config"].get("output_recipe") == "train_signed_power_floor_v1"
+        and task.startswith("pv_")
+        else None
+    )
+    report = evaluate(loaded, arrays, task=task, bounds=bounds)
     evaluation_ref = atomic(f"jobs/{jid}/evaluation.json", encoded(report).encode())
     prediction_arrays = {}
     for partition in ("tune", "promotion"):
         data = arrays[partition]
         prediction_arrays.update(
-            {f"{partition}_{k}": v for k, v in outputs(loaded, data, task).items()}
+            {
+                f"{partition}_{k}": v
+                for k, v in bounded_outputs(loaded, data, task, bounds).items()
+            }
         )
         prediction_arrays.update(
             {f"{partition}_{k}": data[k] for k in ("y", "days", "slots")}
@@ -735,6 +768,8 @@ def execute(store, jid):
         final_audit="sealed",
     )
     ids = []
+    if bounds:
+        common["output_bounds"] = bounds
     for algorithm in [
         "ridge",
         *BASELINES,
@@ -782,6 +817,60 @@ def execute(store, jid):
 def active(store, task=TASK):
     tasks.spec(task)
     return state(store, "release:" + task)
+
+
+def guard_power_model(store, mid, actor, reason):
+    original = get_object(store, mid, "model")
+    p = original["payload"]
+    if not p["task"].startswith("pv_") or p["algorithm"] != "ridge":
+        raise ValueError("训练期出力约束只用于光伏线性模型")
+    if p.get("output_bounds"):
+        return original
+    if job(store, p["job_id"])["state"] != "succeeded":
+        raise ValueError("原训练作业尚无成功退出记录")
+    all_arrays = read_npz(p["arrays"])
+    arrays = {
+        part: {k: all_arrays[part + "_" + k] for k in ("x", "y", "days", "slots")}
+        for part in ("train", "tune", "promotion")
+    }
+    bounds = dict(
+        kind="train_signed_power_floor_v1",
+        lower=float(np.quantile(arrays["train"]["y"], 0.001)),
+        quantile=0.001,
+    )
+    oid = "model_" + digest(dict(variant_of=mid, bounds=bounds))[:32]
+    if store.db.execute("SELECT 1 FROM ml_object WHERE object_id=?", (oid,)).fetchone():
+        return get_object(store, oid, "model")
+    a = validate_model(read_npz(p["weights"]), len(p["policy"]["features"]))
+    report = evaluate(a, arrays, task=p["task"], bounds=bounds)
+    evaluation = atomic(
+        f"models/output-variants/{oid}/evaluation.json", encoded(report).encode()
+    )
+    values = {}
+    for part in ("tune", "promotion"):
+        values.update(
+            {
+                part + "_" + k: v
+                for k, v in bounded_outputs(a, arrays[part], p["task"], bounds).items()
+            }
+        )
+        values.update({part + "_" + k: arrays[part][k] for k in ("y", "days", "slots")})
+    predictions = write_npz(
+        f"models/output-variants/{oid}/evaluation_predictions.npz", **values
+    )
+    payload = dict(
+        p,
+        output_bounds=bounds,
+        variant_of=mid,
+        variant_kind="prediction_constraint_not_weight_retraining",
+        report=report,
+        evaluation=evaluation,
+        evaluation_predictions=predictions,
+    )
+    add_object(store, "model", payload, original["source_hash"], p["dataset_id"], oid)
+    event(store, oid, "evaluated", actor=actor, reason=reason, weights_reused=True)
+    store.db.commit()
+    return get_object(store, oid, "model")
 
 
 def prediction(store, model_id, day, validation=False, input_source_hash=None):
@@ -833,13 +922,15 @@ def prediction(store, model_id, day, validation=False, input_source_hash=None):
         dtype=float,
     )
     data = dict(x=x, days=np.array([day] * len(grid)), slots=np.array(grid))
-    pred = outputs(a, data, task)[p["algorithm"]]
+    raw_pred = outputs(a, data, task)[p["algorithm"]]
+    pred = bounded_outputs(a, data, task, p.get("output_bounds"))[p["algorithm"]]
     if not np.isfinite(pred).all():
         raise ValueError("推理出现非有限值")
     points = [
         dict(
             slot=s,
             predicted=float(pred[i]),
+            raw_predicted=float(raw_pred[i]),
             actual=tasks.target(task, days[day], s),
             source_line=days[day].get(s, {}).get("source_line"),
             source_lines=[
@@ -1041,6 +1132,7 @@ def proposal(store, fid, alpha, actor, reason):
             reason=reason,
             change="parameter_only",
             incorporates_labels=False,
+            output_recipe=m["payload"].get("output_bounds", {}).get("kind"),
         ),
         fb["source_hash"],
         fid,
@@ -1129,8 +1221,12 @@ def release(store, oid, action, actor, reason):
                 }
                 aa = validate_model(read_npz(p["weights"]), dim)
                 bb = validate_model(read_npz(old["payload"]["weights"]), dim)
-                candidate = outputs(aa, data, task)[p["algorithm"]]
-                incumbent = outputs(bb, data, task)[old["payload"]["algorithm"]]
+                candidate = bounded_outputs(aa, data, task, p.get("output_bounds"))[
+                    p["algorithm"]
+                ]
+                incumbent = bounded_outputs(
+                    bb, data, task, old["payload"].get("output_bounds")
+                )[old["payload"]["algorithm"]]
                 gate = paired_ci(
                     data["days"], abs(candidate - data["y"]), abs(incumbent - data["y"])
                 )
@@ -1221,11 +1317,13 @@ def final_audit(store, oid, actor, reason):
             }
         }
         a = validate_model(read_npz(p["weights"]), len(p["policy"]["features"]))
-        report = evaluate(a, data, ("final_audit",), task=p["task"])
+        report = evaluate(
+            a, data, ("final_audit",), task=p["task"], bounds=p.get("output_bounds")
+        )
         native = data["final_audit"]
         prediction_ref = write_npz(
             f"evaluations/{oid}/final_predictions.npz",
-            **outputs(a, native, p["task"]),
+            **bounded_outputs(a, native, p["task"], p.get("output_bounds")),
             y=native["y"],
             days=native["days"],
             slots=native["slots"],

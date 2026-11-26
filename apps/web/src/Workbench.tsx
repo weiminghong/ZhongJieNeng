@@ -37,6 +37,7 @@ import "./styles/unified.css";
 import ModelSettings from "./ModelSettings";
 import PredictionDetails from "./WorkbenchPredictionDetails";
 import ReviewHistory from "./WorkbenchReviewHistory";
+import OptimizationEvidence from "./OptimizationEvidence";
 
 type Source = {
   key: string;
@@ -361,6 +362,10 @@ export default function Workbench() {
         const id = String(r.id || "");
         if (id)
           change({ type: "record", record: id, model: s.model, date: s.date });
+      }
+      if (action === "guard_power" && r.id) {
+        change({ type: "model", model: String(r.id) });
+        change({ type: "tab", tab: "forecast" });
       }
       if (action === "analyze") {
         setAnswerVersion(String(r.context_version || c?.context_version || ""));
@@ -1023,6 +1028,31 @@ export default function Workbench() {
                               </p>
                             )}
                           </Panel>
+                          {c.source.task.startsWith("pv_") && (
+                            <Panel
+                              title="训练期出力约束修正"
+                              subtitle="复用所选线性模型的真实权重，只用训练期分布估计输出边界；源标签保持不变，不记作新权重训练。"
+                            >
+                              {note("修正依据")}
+                              <button
+                                disabled={
+                                  !!busy ||
+                                  !selectedModel?.trained ||
+                                  !actor.trim() ||
+                                  !reason.trim()
+                                }
+                                onClick={() =>
+                                  void act(
+                                    "guard_power",
+                                    {},
+                                    "约束修正版本已保存，请运行该版本生成新的预测记录",
+                                  )
+                                }
+                              >
+                                为所选版本建立出力约束
+                              </button>
+                            </Panel>
+                          )}
                           <Panel title="当前范围的模型">
                             <ModelTable
                               models={c.models}
@@ -1142,6 +1172,15 @@ export default function Workbench() {
                             </div>
                           </Panel>
                         </>
+                      )}
+                      {s.tab === "compare" && c.source.domain === "market" && (
+                        <OptimizationEvidence
+                          key={s.task}
+                          task={s.task}
+                          date={s.date}
+                          revision={revision}
+                          theme={theme}
+                        />
                       )}
                       {s.tab === "analytics" && (
                         <HistoryAnalysis

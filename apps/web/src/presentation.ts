@@ -128,6 +128,8 @@ export const toolLabel = (value?: string) =>
 /** Display only. The stored evidence and machine identifiers remain unchanged. */
 export function businessText(value: unknown): string {
   let text = String(value ?? "");
+  if (/ufunc|dtype\(|Traceback|did not contain a loop/i.test(text))
+    return "计算未完成，执行环境或数据格式需要核验；失败记录已保留。";
   text = text
     .replace(/intraday-corr-demo/g, "日内修正参考模型")
     .replace(/lgbm-demo/g, "光伏功率参考模型")

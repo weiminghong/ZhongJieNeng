@@ -240,7 +240,11 @@ def models(store, s):
                     )["state"]
                     == "registered",
                     score=p["report"]["promotion"]["scores"][p["algorithm"]],
-                    scope_label="提升评估窗口",
+                    scope_label=(
+                        "已有真实训练权重，应用训练期经验出力约束；不是重新训练权重"
+                        if p.get("output_bounds")
+                        else "提升评估窗口"
+                    ),
                     alpha=p["alpha"],
                 )
             )
@@ -975,6 +979,10 @@ def context(
     related = []
     if s["domain"] == "market" and mid:
         model = ml.get_object(store, mid, "model")
+        if model["payload"].get("output_bounds"):
+            s[
+                "notice"
+            ] += " 该约束修正版本复用原训练权重，边界仅由训练期数据估计；源标签保留。"
         if model["payload"]["algorithm"] == "ridge":
             audit = store.db.execute(
                 "SELECT audit_id FROM ml_audits WHERE model_version_id=? ORDER BY created_at DESC LIMIT 1",
@@ -1525,6 +1533,7 @@ class Command(BaseModel):
         "retry",
         "final_audit",
         "scenario",
+        "guard_power",
     ]
     source_key: str
     task_id: str | None = None
@@ -1584,6 +1593,7 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
         "retry": "重试任务",
         "final_audit": "执行最终评估",
         "scenario": "保存量价测算",
+        "guard_power": "建立训练期出力约束版本",
     }
     details = dict(
         operation=operation,
@@ -1611,6 +1621,10 @@ def command(b: Command, request: Request, store: Store = Depends(store_dep)):
 
 
 def execute_command(b, request, store, s, day, m):
+    if b.action == "guard_power":
+        if s["domain"] != "market" or not m:
+            raise ValueError("请先选择公开光伏线性模型")
+        return ml.guard_power_model(store, m["id"], b.actor, b.reason)
     if b.action == "scenario":
         view = context(
             store,

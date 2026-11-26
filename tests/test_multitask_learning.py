@@ -227,6 +227,50 @@ class MultitaskLearningTests(unittest.TestCase):
             self.assertIsNotNone(c["points"][48]["predicted"])
             self.assertTrue(all(x["predicted"] is None for x in c["points"][49:]))
 
+    def test_output_guard_preserves_weights_labels_and_is_explicitly_not_retraining(
+        self,
+    ):
+        task = "pv_day_ahead_reference"
+        _, ids = self.train(task)
+        old = ml.get_object(self.s, ids[0])
+        before = self.f.csv.read_bytes()
+        new = ml.guard_power_model(
+            self.s, old["id"], "generated technical reviewer", "修正训练期经验边界"
+        )
+        self.assertEqual(old["payload"]["weights"], new["payload"]["weights"])
+        self.assertEqual(
+            new["payload"]["variant_kind"],
+            "prediction_constraint_not_weight_retraining",
+        )
+        self.assertEqual(self.f.csv.read_bytes(), before)
+        pred = ml.prediction(self.s, new["id"], "2024-02-26")
+        self.assertTrue(
+            all(
+                p["predicted"] >= new["payload"]["output_bounds"]["lower"]
+                for p in pred["payload"]["points"]
+            )
+        )
+        self.assertTrue(all("raw_predicted" in p for p in pred["payload"]["points"]))
+        self.assertEqual(
+            ml.guard_power_model(self.s, old["id"], "test", "重复请求")["id"], new["id"]
+        )
+
+    def test_guarded_model_retraining_keeps_train_only_output_recipe(self):
+        task = "pv_day_ahead_reference"
+        _, ids = self.train(task)
+        new = ml.guard_power_model(self.s, ids[0], "test", "训练期边界")
+        pred = ml.prediction(self.s, new["id"], "2024-02-10", True)
+        f = ml.feedback(self.s, pred["id"], 48, "test", "核对生成标签")
+        ml.confirm_feedback(self.s, f["id"], "test", "确认")
+        p = ml.proposal(self.s, f["id"], 10, "test", "相同出力约束的参数重训")
+        j = ml.train_proposal(self.s, p["id"], "guarded-retrain")
+        self.assertEqual(j["config"]["output_recipe"], "train_signed_power_floor_v1")
+        models = ml.execute(self.s, j["id"])
+        self.assertEqual(
+            ml.get_object(self.s, models[0])["payload"]["output_bounds"]["kind"],
+            "train_signed_power_floor_v1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

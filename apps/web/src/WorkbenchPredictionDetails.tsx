@@ -8,6 +8,8 @@ type Details = {
   explanation: {
     items: { name: string; value: number }[];
     prediction_mean: number;
+    output_constrained?: boolean;
+    postprocessed_prediction_mean?: number;
     method: string;
   } | null;
   range?: {
@@ -56,9 +58,19 @@ export default function PredictionDetails({
           {r.data.explanation ? (
             <>
               <p>
-                {r.data.explanation.method} · 日均预测{" "}
+                {r.data.explanation.method} ·{" "}
+                {r.data.explanation.output_constrained
+                  ? "约束前日均估计"
+                  : "日均预测"}{" "}
                 {fmt(r.data.explanation.prediction_mean, 3)} {r.data.unit}
               </p>
+              {r.data.explanation.output_constrained && (
+                <p>
+                  约束后保存预测的均值：
+                  {fmt(r.data.explanation.postprocessed_prediction_mean, 3)}{" "}
+                  {r.data.unit}
+                </p>
+              )}
               <div className="table-wrap">
                 <table>
                   <thead>
