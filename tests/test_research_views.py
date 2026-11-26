@@ -12,6 +12,16 @@ from tests import test_learning as fixtures
 
 
 class ResearchViewTests(unittest.TestCase):
+    def test_optimized_display_slices_use_saved_outputs_and_preserve_evidence(self):
+        saved = dict(n=4, mae=2.0)
+        y = np.array([-3., 0., 2., 4.])
+        prediction = np.array([-1., 0., 1., -1.])
+        score = views.comparison_scores(saved, y, prediction, "prebid_spread_reference")
+        self.assertEqual(score["direction_accuracy"], .75)
+        self.assertAlmostEqual(score["balanced_direction_accuracy"], 5/6)
+        self.assertEqual(score["positive_output"]["n"], 2)
+        self.assertEqual(saved, dict(n=4, mae=2.0))
+
     def setUp(self):
         self.fixture = fixtures.LearningTests()
         self.fixture.setUp()

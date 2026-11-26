@@ -284,7 +284,10 @@ export default function Workbench() {
     s.slot,
     s.basis,
   ]);
-  useEffect(() => setCasePage(0), [c?.context_version]);
+  useEffect(() => {
+    const index = c?.cases.findIndex((item) => item.slot === s.slot) ?? -1;
+    setCasePage(index < 0 ? 0 : Math.floor(index / 6));
+  }, [c?.context_version, s.slot]);
   useEffect(() => {
     if (
       c &&
@@ -1416,7 +1419,7 @@ export default function Workbench() {
                                             )
                                           }
                                         >
-                                          提交受控重训
+                                          {usesOptimizationRecipe ? "复核后重跑冻结方案" : "提交受控重训"}
                                         </button>
                                       </div>
                                     )}

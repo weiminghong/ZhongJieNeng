@@ -388,6 +388,22 @@ def decomposition(
     )
 
 
+def comparison_scores(saved, actual, predicted, task):
+    """Derive missing display slices from saved paired outputs, without refitting."""
+    from .task_catalog import spec
+
+    score = dict(saved)
+    if task != ml.TASK:
+        score.setdefault("positive_output", ml.scores(actual[actual > 0], predicted[actual > 0]))
+    if spec(task)["target"] == "spread" and len(actual):
+        signs = np.sign(actual)
+        score.setdefault("direction_accuracy", float(np.mean(np.sign(predicted) == signs)))
+        score.setdefault("balanced_direction_accuracy", float(np.mean([
+            np.mean(np.sign(predicted[signs == c]) == c) for c in np.unique(signs)
+        ])))
+    return score
+
+
 def compare(store, model_id, partition):
     ref = ml.get_object(store, model_id, "model")
     p = ref["payload"]
@@ -468,7 +484,7 @@ def compare(store, model_id, partition):
                 algorithm=algorithm,
                 alpha=mp["alpha"],
                 state=m["state"],
-                scores=r["scores"][algorithm],
+                scores=comparison_scores(r["scores"][algorithm], values[f"{partition}_y"], predicted, p["task"]),
                 aliases=[m["id"]],
             )
             rows.append(row)

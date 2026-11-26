@@ -324,13 +324,8 @@ def execute(store, jid, policy):
     payload=dict(algorithm=ALGORITHM,task=task,unit=policy["unit"],policy=policy,job_id=jid,dataset_id=ds["id"],weights=ref_weights,arrays=arrays,manifest=manifest_ref,counts=counts,report=report,evaluation=evidence,evaluation_predictions=arrays,splits=split,artifact_load_verified=True,training_label_end=split["train"][1],selection_end=split["tune"][1],final_audit="sealed",optimization_result_id=policy["optimization_result_id"],recipe_hash=ml.digest(dict(recipe=package["recipe"],blend=package["blend"])),selected_recipe=package["recipe"],selection=choice,alpha=j["config"]["alpha"],trainable_parameters=fitted_parameter_count(a),serialized_numeric_values=int(sum(v.size for k,v in a.items() if k!="metadata")),measured_seconds=time.monotonic()-started,execution_scope="fixed_split_candidate",information_budget=policy["information_budget"],independent_evidence=False,production_eligible=False,feature_value_hash=hashlib.sha256(data["xr"].tobytes()).hexdigest())
     payload.update(effective_training_rows=package["n"],effective_training_start=package["train_start"],effective_training_end=package["train_end"],
                    fitted_statistics="Frozen recipe selection on tune; weights and power floor fit on train only")
-    if "linear_coefficients" in a:
-        payload["trainable_parameters"]=len(a["linear_coefficients"])+1
-    elif "tree_nodes" in a:
+    if "tree_nodes" in a:
         payload["fitted_tree_nodes"]=len(a["tree_nodes"])
-        payload["trainable_parameters"]=int(len(a["tree_nodes"])+1)
-    else:
-        payload["trainable_parameters"]=0
     oid=ml.add_object(store,"model",payload,ds["source_hash"],ds["id"])
     ml.event(store,oid,"evaluated",evidence=evidence,note="历史研究候选；已使用窗口不恢复独立资格")
     ml.event(store,jid,"child_complete",models=[oid],counts=counts,measured_seconds=payload["measured_seconds"],manifest=manifest_ref)
