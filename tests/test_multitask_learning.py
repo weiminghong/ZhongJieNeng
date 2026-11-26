@@ -43,6 +43,12 @@ class MultitaskLearningTests(unittest.TestCase):
         return j, ids
 
     def test_real_artifact_shapes_units_and_all_task_predictions(self):
+        with TestClient(create_app()) as client:
+            caps = client.get("/api/v1/ml/capabilities").json()
+            self.assertEqual({p["task"] for p in caps["tasks"]}, set(tasks.TASKS))
+            self.assertTrue(
+                all(p["production_eligible"] is False for p in caps["tasks"])
+            )
         for task in tasks.TASKS:
             if task == ml.TASK:
                 continue

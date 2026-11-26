@@ -180,6 +180,17 @@ def station_intervals(store, s, day, mode, until, cutoff_at=None):
     )
 
 
+def comparison_evidence(ci, unit):
+    if ci.get("upper95") is None:
+        return "有效交易日不足，尚不能确认误差改善。"
+    conclusion = (
+        "支持误差降低"
+        if ci["upper95"] < 0
+        else "误差更高" if ci["lower95"] > 0 else "改善尚不确定"
+    )
+    return f"按交易日计算，相对预设参考的平均绝对误差差值95%区间为 [{ci['lower95']:.3f}, {ci['upper95']:.3f}] {unit}；{conclusion}。"
+
+
 def catalog(store):
     return dict(
         sources=sources(store), default_source="market:shandong", checked_at=now()
@@ -805,6 +816,13 @@ def context(
                     + report["end"]
                     + " · 同一数据版本与有效时段"
                 )
+                selected = ml.get_object(store, mid, "model")["payload"]
+                reference = selected["policy"].get(
+                    "initial_baseline", "seasonal_naive_d2"
+                )
+                ci = report["report"].get("comparisons", {}).get(reference)
+                if selected["algorithm"] == "ridge" and ci:
+                    comparison_notice += " · " + comparison_evidence(ci, s["unit"])
             except ValueError as exc:
                 comparison_notice = str(exc)
         flow = [
@@ -957,6 +975,20 @@ def context(
     related = []
     if s["domain"] == "market" and mid:
         model = ml.get_object(store, mid, "model")
+        if model["payload"]["algorithm"] == "ridge":
+            audit = store.db.execute(
+                "SELECT audit_id FROM ml_audits WHERE model_version_id=? ORDER BY created_at DESC LIMIT 1",
+                (mid,),
+            ).fetchone()
+            if audit:
+                reference = model["payload"]["policy"].get(
+                    "initial_baseline", "seasonal_naive_d2"
+                )
+                ci = ml.get_object(store, audit[0], "audit")["payload"]["report"][
+                    "final_audit"
+                ]["comparisons"].get(reference)
+                if ci and (ci.get("upper95") is None or ci["upper95"] >= 0):
+                    s["notice"] += " 最终窗口：" + comparison_evidence(ci, s["unit"])
         job = ml.job(store, model["payload"]["job_id"])
         proposal_id = job["config"].get("proposal_id")
         proposals = [
