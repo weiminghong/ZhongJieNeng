@@ -1506,6 +1506,19 @@ def knowledge_history(
                 notice=knowledge.NOTICE, context_version=view["context_version"])
 
 
+@router.get("/data-readiness")
+def data_readiness(
+    source_key: str, trading_date: Date, model_id: str | None = None,
+    record_id: str | None = None, task_id: str | None = None,
+    mode: Literal["live", "post", "replay"] = "post", until: str = "23:59",
+    basis: Literal["latest", "snapshot"] = "latest", store: Store = Depends(store_dep),
+):
+    from .workspace_readiness import inspect
+    view = context(store, source_key, trading_date.isoformat(), model_id, record_id,
+                   mode, until, basis, task_id=task_id)
+    return inspect(store, view, mode, until)
+
+
 @router.get("/prediction-details")
 def prediction_details(
     source_key: str,
@@ -1571,6 +1584,7 @@ class Command(BaseModel):
     feedback_id: str | None = None
     job_id: str | None = None
     optimization_result_id: str | None = None
+    business_object_id: str | None = None
     actor: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=4000)
     slot: int | None = Field(default=None, ge=0, le=95)
@@ -1948,16 +1962,21 @@ def analyze_context(store, b):
     from .model_settings import load_settings, select_evidence, ProviderError
     from .storage import digest
 
+    business = None
+    if b.business_object_id:
+        from .business_assistant import load as load_business
+        business = load_business(store, b.business_object_id, b.source_key, b.date.isoformat(),
+                                 b.task_id, b.model_id, b.record_id, b.mode, b.until)
     c = context(
         store,
         b.source_key,
         b.date.isoformat(),
-        b.model_id,
-        b.record_id,
+        business["model_id"] if business else b.model_id,
+        business["record_id"] if business else b.record_id,
         b.mode,
         b.until,
         b.basis,
-        task_id=b.task_id,
+        task_id=business["task"] if business else b.task_id,
     )
     if b.context_version and b.context_version != c["context_version"]:
         raise ValueError("数据已更新，请重新核对后分析")
@@ -1973,11 +1992,20 @@ def analyze_context(store, b):
         ),
         c["source"]["notice"],
     ]
-    tools, citations = knowledge.evidence_tools(store, c, b.reason, b.mode, b.until, b.slot)
-    point = knowledge.selected_point(c, b.slot)
+    if business:
+        from .business_assistant import evidence as business_evidence
+        facts, tools = business_evidence(business)
+        citations = [dict(id=business["id"], kind="business_object", title=business["title"],
+                          created_at=business["created_at"], text=business["snapshot_notice"])]
+        point = None
+    else:
+        tools, citations = knowledge.evidence_tools(store, c, b.reason, b.mode, b.until, b.slot)
+        point = knowledge.selected_point(c, b.slot)
     def visible_number(value):
         return "尚不可用" if value is None else f"{value:.3f}"
     required_indices = [0, len(facts)-1]
+    if business:
+        required_indices = list(range(len(facts)))
     if point:
         delta = (point["actual"] - point["predicted"]
                  if point["actual"] is not None and point["predicted"] is not None else None)
@@ -1987,7 +2015,7 @@ def analyze_context(store, b):
         facts.append(f"所选时段{selected_time}：预测{visible_number(point['predicted'])}，实际{visible_number(point['actual'])}，实际减预测{visible_number(delta)}，单位{c['source']['unit']}；日前价格{visible_number(point.get('da_price'))}、实时价格{visible_number(point.get('rt_price'))}元/MWh；{quality}。")
     facts.extend(t["summary"] for t in tools[1:])
     facts.extend(f"引用《{x['title']}》：{x['text']}" for x in citations)
-    for case in sorted(c["cases"], key=lambda p: abs(p["error"]), reverse=True)[:3]:
+    for case in ([] if business else sorted(c["cases"], key=lambda p: abs(p["error"]), reverse=True)[:3]):
         case_time = datetime.fromisoformat(case["start"].replace("Z", "+00:00")).astimezone(public_data.TZ).strftime("%H:%M")
         facts.append(
             f"{case_time}时段，实际{case['actual']:.3f}，预测{case['predicted']:.3f}。仅凭偏差不能确认气象或设备根因。"
@@ -2011,6 +2039,9 @@ def analyze_context(store, b):
     sha = c.get("metadata", {}).get("source_hash") or digest(
         dict(source=b.source_key, date=c["date"], points=c["points"])
     )
+    if business:
+        sha = ((business["settlement"] or {}).get("observation_source_hash")
+               or business["plan"].get("input_source_hash") or sha)
     oid = ml.add_object(
         store,
         "analysis",
@@ -2025,16 +2056,19 @@ def analyze_context(store, b):
             facts=facts,
             tool_calls=tools,
             citations=citations,
+            business_object_id=business["id"] if business else None,
+            business_snapshot=business,
             answer=answer,
             llm_mode=mode,
             provider_error=failure,
             context_version=c["context_version"],
             evidence_snapshot=dict(
-                points=c["points"],
-                metadata=c["metadata"],
+                points=[] if business else c["points"],
+                metadata=dict(source_key=b.source_key, date=c["date"], business_object_id=business["id"])
+                if business else c["metadata"],
                 mode=b.mode,
                 until=b.until,
-                basis=b.basis,
+                basis="saved_business_snapshot" if business else b.basis,
             ),
         ),
         sha,
@@ -2057,4 +2091,7 @@ def analyze_context(store, b):
         tools=tools,
         citations=citations,
         knowledge_notice=knowledge.NOTICE,
+        business_object=(dict(id=business["id"], kind=business["kind"], title=business["title"],
+                              parameters=business["parameters"], snapshot_notice=business["snapshot_notice"])
+                         if business else None),
     )

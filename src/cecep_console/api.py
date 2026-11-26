@@ -276,6 +276,10 @@ def create_app():
     app.include_router(research_router)
     app.include_router(unified_router)
     app.include_router(optimization_router)
+    from .business_workflow import router as business_router
+    from .business_reviews import router as review_router
+    app.include_router(business_router)
+    app.include_router(review_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):

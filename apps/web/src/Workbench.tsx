@@ -42,6 +42,9 @@ import DataOverview, { type SourceMetadata } from "./WorkbenchDataOverview";
 import IntervalDetails from "./WorkbenchIntervalDetails";
 import AgentEvidence, { type Citation, type AnalysisTool } from "./WorkbenchAgentEvidence";
 import OptimizationTraining from "./WorkbenchOptimizationTraining";
+import BusinessWorkflow from "./BusinessWorkflow";
+import BusinessOverview from "./BusinessOverview";
+import DataReadiness from "./WorkbenchDataReadiness";
 
 type Source = {
   key: string;
@@ -164,20 +167,26 @@ type Context = {
     analysis_mode: string;
   };
 };
-const nav = [
+const businessNav = [
   { id: "overview", name: "总览", icon: LayoutDashboard },
-  { id: "raw", name: "数据管理", icon: Database },
-  { id: "learning", name: "训练与模型", icon: BrainCircuit },
+  { id: "raw", name: "数据准备", icon: Database },
   { id: "forecast", name: "预测分析", icon: Activity },
+  { id: "plan", name: "申报方案", icon: ChartNoAxesCombined },
+  { id: "settlement", name: "实绩结算", icon: ClipboardCheck },
+  { id: "review", name: "偏差复盘", icon: GitCompare },
+];
+const maintenanceNav = [
+  { id: "learning", name: "训练与模型", icon: BrainCircuit },
   { id: "compare", name: "评估对比", icon: GitCompare },
   { id: "analytics", name: "历史分析", icon: Layers3 },
-  { id: "rsi", name: "复核审批", icon: ClipboardCheck },
+  { id: "rsi", name: "模型复核与审批", icon: ClipboardCheck },
   { id: "monitor", name: "运行监测", icon: Radio },
   { id: "flow", name: "数据链路", icon: Layers3 },
-  { id: "trading", name: "交易测算", icon: ChartNoAxesCombined },
+  { id: "trading", name: "研究测算", icon: ChartNoAxesCombined },
   { id: "agent", name: "智能体分析", icon: Sparkles },
   { id: "settings", name: "服务设置", icon: Settings2 },
 ];
+const nav = [...businessNav, ...maintenanceNav];
 export default function Workbench() {
   const [s, change] = useReducer(selectionChange, undefined, () => {
     let saved: Partial<Selection> | undefined;
@@ -234,6 +243,7 @@ export default function Workbench() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [answerVersion, setAnswerVersion] = useState("");
+  const [businessObject, setBusinessObject] = useState<{ scope: string; id: string; name: string } | null>(null);
   const [analysisEvidence, setAnalysisEvidence] = useState<{ citations: Citation[]; tools: AnalysisTool[]; notice: string }>({ citations: [], tools: [], notice: "" });
   const selectedCase =
     c?.cases.find((x) => x.slot === s.slot) ||
@@ -370,6 +380,7 @@ export default function Workbench() {
           until: s.until,
           basis: s.basis,
           context_version: c?.context_version || "",
+          ...(action === "analyze" && businessObject?.scope === `${s.source}:${s.date}` ? { business_object_id: businessObject.id } : {}),
           ...extra,
         },
       );
@@ -532,7 +543,9 @@ export default function Workbench() {
           </strong>
         </a>
         <nav>
-          {nav.map((n) => (
+          {[{ name: "日常业务", items: businessNav }, { name: "模型维护与支持", items: maintenanceNav }].map((group) => <div className="unified-nav-group" key={group.name}>
+          <p className="unified-nav-group-label">{group.name}</p>
+          {group.items.map((n) => (
             <button
               key={n.id}
               aria-current={s.tab === n.id ? "page" : undefined}
@@ -545,6 +558,7 @@ export default function Workbench() {
               </span>
             </button>
           ))}
+          </div>)}
         </nav>
         <div className="energy-sidebar-bottom">
           <p>数据、预测与复核在同一范围接续</p>
@@ -654,6 +668,7 @@ export default function Workbench() {
               <span>查看方式</span>
               <select
                 aria-label="查看方式"
+                disabled={["plan", "settlement", "review"].includes(s.tab)}
                 value={s.mode}
                 onChange={(e) =>
                   change({
@@ -726,6 +741,11 @@ export default function Workbench() {
                     <>
                       {s.tab === "overview" && (
                         <>
+                          <BusinessOverview source={s.source} date={s.date} revision={`${revision}:${c.context_version}`} navigate={(tab) => { if (tab === "forecast" && s.source === "market:shandong" && s.task !== "pv_day_ahead_reference") { change({ type: "task", task: "pv_day_ahead_reference" }); change({ type: "date", date: s.date }); } change({ type: "tab", tab }); }} />
+                          <Panel title="今天的业务怎么继续" subtitle="数据、预测、申报方案、实绩结算与偏差处理按同一来源和日期接续。">
+                            <div className="business-stage-nav">{businessNav.slice(1).map((item, i) => <button key={item.id} onClick={() => change({ type: "tab", tab: item.id })}><span>{i + 1}</span>{item.name}</button>)}</div>
+                            <p className="research-help">先在预测分析保存模型结果，再形成申报方案；实际值到达后保存结算，最后用可比结果验证处理效果。模型训练与审批保留在左侧维护分组。</p>
+                          </Panel>
                           <div className="research-metrics">
                             <div>
                               <span>所选日期有效实际值</span>
@@ -817,6 +837,7 @@ export default function Workbench() {
                               select={(slot) => change({ type: "slot", slot })}
                               navigate={(tab) => change({ type: "tab", tab })}
                               analyze={(point) => {
+                                setBusinessObject(null);
                                 setQuestion(`请分析 ${c.date} ${time(point.start)} 这一时段的${c.source.task_name}，说明预测与实际的差异、已有证据和需要人工核对的事项。`);
                                 change({ type: "tab", tab: "agent" });
                               }}
@@ -842,6 +863,7 @@ export default function Workbench() {
                       )}
                       {s.tab === "raw" && (
                         <>
+                        <DataReadiness selection={s} revision={`${revision}:${c.context_version}`} />
                         <DataOverview
                           key={s.source + ":" + s.task}
                           source={c.source}
@@ -857,6 +879,7 @@ export default function Workbench() {
                           title="当前范围的分时数据"
                           subtitle="数据范围、日期和模型均使用上方同一选择。选择时段后可继续预测分析或复核。"
                         >
+                          <p className="research-help">实际值状态仅描述当前预测目标。日前价格按原始小时记录显示，不重复补成15分钟标签；价格完整性请看上方按小时的用途检查。</p>
                           <DataTable
                             points={c.points}
                             unit={c.source.unit}
@@ -872,6 +895,25 @@ export default function Workbench() {
                         </Panel>
                         </>
                       )}
+                      {["plan", "settlement", "review"].includes(s.tab) && <BusinessWorkflow
+                        key={`${s.source}:${s.date}`}
+                        selection={s}
+                        stage={s.tab as "plan" | "settlement" | "review"}
+                        theme={theme}
+                        revision={`${revision}:${c.context_version}`}
+                        bindPrediction={(prediction) => {
+                          if (s.task !== prediction.task) change({ type: "task", task: prediction.task });
+                          change({ type: "record", record: prediction.record_id, model: prediction.model_id, date: prediction.date });
+                        }}
+                        navigate={(tab) => { if (tab === "forecast" && s.source === "market:shandong" && s.task !== "pv_day_ahead_reference") { change({ type: "task", task: "pv_day_ahead_reference" }); change({ type: "date", date: s.date }); } change({ type: "tab", tab }); }}
+                        analyze={(id, name, plan) => {
+                          if (s.task !== plan.task) change({ type: "task", task: plan.task });
+                          change({ type: "record", record: plan.record_id, model: plan.model_id, date: plan.date });
+                          setBusinessObject({ scope: `${s.source}:${plan.date}`, id, name });
+                          setQuestion(`请分析${name}，按该业务对象保存的预测、参数、实际观测与处理证据说明结果和下一步核对事项。`);
+                          change({ type: "tab", tab: "agent" });
+                        }}
+                      />}
                       {s.tab === "forecast" && (
                         <>
                           <Panel title="运行与查看预测">
@@ -1767,6 +1809,7 @@ export default function Workbench() {
                           <p>
                             {c.source.name} · {c.date} · {c.source.task_name}
                           </p>
+                          {businessObject?.scope === `${s.source}:${s.date}` && <p className="business-object-notice">本次围绕：{businessText(businessObject.name)}。分析沿用该对象保存的参数和快照。<button onClick={() => setBusinessObject(null)}>改为当前预测分析</button></p>}
                           <p className="research-help">{s.slot !== null ? `重点时段：${c.points.find((p) => p.slot === s.slot) ? time(c.points.find((p) => p.slot === s.slot)!.start) : "当前范围无此时段"}。分析同时保留当日背景。` : "当前分析当日范围；可在首页选择一个时段后继续。"}</p>
                           <label className="unified-question">
                             业务问题
@@ -1850,7 +1893,7 @@ function DataTable({
             <th>模型预测 / {unit}</th>
             <th>日前电价 / 元/MWh</th>
             <th>实时电价 / 元/MWh</th>
-            <th>状态</th>
+            <th>实际值状态</th>
           </tr>
         </thead>
         <tbody>

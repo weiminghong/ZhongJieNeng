@@ -59,6 +59,9 @@ export function readSelection(
       "raw",
       "learning",
       "forecast",
+      "plan",
+      "settlement",
+      "review",
       "compare",
       "analytics",
       "rsi",
@@ -96,6 +99,7 @@ export function readSelection(
   const mode = p.get("mode");
   if (mode === "live" || mode === "post" || mode === "replay") s.mode = mode;
   s.until = p.get("until") || stored.until || "23:59";
+  if (["plan", "settlement", "review"].includes(s.tab)) { s.mode = "post"; s.until = "23:59"; }
   return s;
 }
 export type Change =
@@ -140,7 +144,7 @@ export function selectionChange(s: Selection, c: Change): Selection {
         slot: null,
       };
     case "tab":
-      return { ...s, tab: c.tab };
+      return ["plan", "settlement", "review"].includes(c.tab) ? { ...s, tab: c.tab, mode: "post", until: "23:59" } : { ...s, tab: c.tab };
     case "slot":
       return { ...s, slot: c.slot };
     case "view":
