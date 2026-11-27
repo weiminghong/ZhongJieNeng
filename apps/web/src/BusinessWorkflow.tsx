@@ -1,3 +1,4 @@
+import { requestKey } from "./requestKey";
 import { useEffect, useRef, useState } from "react";
 import { fmt, request, stamp, useResource } from "./api";
 import { Panel, Status } from "./components";
@@ -59,7 +60,7 @@ export default function BusinessWorkflow({ selection: s, stage, revision, theme,
       const result = await request<{ plan: BusinessPlan; settlement?: BusinessSettlement }>("/api/v1/business/commands", {
         action, source_key: s.source, trading_date: s.date, record_id: action === "settle" ? plan?.record_id : record,
         model_id: action === "settle" ? plan?.model_id : prediction?.model_id,
-        plan_id: action === "create_plan" ? undefined : plan?.id, actor: actor.trim(), reason: reason.trim(), key: crypto.randomUUID(),
+        plan_id: action === "create_plan" ? undefined : plan?.id, actor: actor.trim(), reason: reason.trim(), key: requestKey(),
         ...(action === "settle" ? {} : { parameters, ...prices }), observation_id: observation, context_version: action === "settle" ? snapshotCatalog.data?.context_version : catalog.data?.context_version,
       });
       if (!mounted.current) return;
@@ -73,7 +74,8 @@ export default function BusinessWorkflow({ selection: s, stage, revision, theme,
   const comparisonSettlements = [...new Map([...(catalog.data?.plans.flatMap((p) => p.latest_settlement ? [p.latest_settlement] : []) || []), ...settlements].map((x) => [x.id, x])).values()];
   return <div className="business-workflow">
     <div className="business-stage-nav" aria-label="方案业务步骤">{[{ key: "plan", name: "形成申报方案" }, { key: "settlement", name: "核对实绩结算" }, { key: "review", name: "处理与验证偏差" }].map((item, i) => <button key={item.key} aria-current={stage === item.key ? "step" : undefined} onClick={() => navigate(item.key)}><span>{i + 1}</span>{item.name}</button>)}</div>
-    <Status loading={catalog.loading} error={catalog.error || error} />
+    <Status loading={catalog.loading} error={catalog.error} />
+    {error && <p className="state error" role="alert">操作未完成：{businessText(error)}。已填写的内容保留，请核对后重试。</p>}
     {message && <p className="inline-success" role="status">{message}</p>}
     <p className="business-object-notice">保存对象快照 · 历史研究。本页展示完整已保存方案与实绩版本，查看方式固定为历史复盘，不按回放时间重新筛选或结算。</p>
     <p className="research-help">{businessText(catalog.data?.notice || "正在读取当前来源与日期的业务记录。")}</p>

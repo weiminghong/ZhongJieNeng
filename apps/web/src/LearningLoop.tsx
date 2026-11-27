@@ -1,3 +1,4 @@
+import { requestKey } from "./requestKey";
 import { useEffect, useState } from "react";
 import { RefreshCw, Play, Undo2, FileCheck2 } from "lucide-react";
 import type { Theme } from "./types";
@@ -556,7 +557,7 @@ export default function LearningLoop({
                         action: "train",
                         object_id: dataset?.id,
                         alpha,
-                        idempotency_key: crypto.randomUUID(),
+                        idempotency_key: requestKey(),
                       },
                       "训练任务已排队；下表显示实际阶段。",
                     )
@@ -647,7 +648,7 @@ export default function LearningLoop({
                                       {
                                         action: "retry",
                                         object_id: j.id,
-                                        idempotency_key: crypto.randomUUID(),
+                                        idempotency_key: requestKey(),
                                       },
                                       "已创建独立重试，保留原失败记录。",
                                     )
@@ -1242,7 +1243,7 @@ export default function LearningLoop({
                           {
                             action: "train_proposal",
                             object_id: proposalId,
-                            idempotency_key: crypto.randomUUID(),
+                            idempotency_key: requestKey(),
                           },
                           "重训已排队，可在任务表查看实际进度。",
                         )

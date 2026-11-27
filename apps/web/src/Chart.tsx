@@ -61,6 +61,9 @@ export function baseOption(): EChartsOption {
       backgroundColor: color("surface"),
       borderColor: color("outline"),
       textStyle: { color: color("on-surface") },
+      valueFormatter: (value) => typeof value === "number"
+        ? value.toLocaleString("zh-CN", { maximumFractionDigits: 3 })
+        : value == null ? "—" : String(value),
     },
     grid: { left: 56, right: 30, top: 50, bottom: 60 },
     legend: {
@@ -85,6 +88,7 @@ export default function Chart({
   option,
   theme,
   group,
+  linked = false,
   onPoint,
   compact = false,
   label,
@@ -92,38 +96,51 @@ export default function Chart({
   option: () => EChartsOption;
   theme: Theme;
   group?: string;
+  linked?: boolean;
   onPoint?: (index: number) => void;
   compact?: boolean;
   label: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const instance = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const selectPoint = useRef(onPoint);
+  selectPoint.current = onPoint;
+  const latestOption = useRef(option);
+  latestOption.current = option;
   useEffect(() => {
     const chart = echarts.init(ref.current!);
-    chart.setOption(option());
-    if (group) {
+    instance.current = chart;
+    chart.setOption(latestOption.current());
+    if (group && linked) {
       chart.group = group;
       echarts.connect(group);
     }
-    if (onPoint)
-      chart.getZr().on("click", (event) => {
+    chart.getZr().on("click", (event) => {
+        if (!selectPoint.current) return;
         const point = [event.offsetX, event.offsetY];
         if (chart.containPixel("grid", point)) {
           const coordinates = chart.convertFromPixel({ gridIndex: 0 }, point);
           const index = Math.round(coordinates[0]);
-          if (Number.isFinite(index) && index >= 0) onPoint(index);
+          if (Number.isFinite(index) && index >= 0) selectPoint.current(index);
         }
       });
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(ref.current!);
     return () => {
       observer.disconnect();
+      if (group && linked) echarts.disconnect(group);
       chart.dispose();
+      instance.current = null;
     };
-  }, [option, theme, group, onPoint]);
+  }, [theme, group, linked]);
+  useEffect(() => {
+    instance.current?.setOption(option(), { replaceMerge: ["series"] });
+  }, [option, theme, group, linked]);
   return (
     <div
       role="img"
       aria-label={label}
+      data-chart-interaction={linked ? "linked" : "independent"}
       ref={ref}
       className={compact ? "chart compact-chart" : "chart"}
     />

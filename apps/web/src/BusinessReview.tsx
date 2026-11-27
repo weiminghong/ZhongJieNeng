@@ -46,7 +46,8 @@ export default function BusinessReview({ source, date, plan, predictions, settle
       <p className="research-help">使用本页上方的操作人与依据。需要通过金额对照验证的问题，请先绑定原结算版本。</p>
     </Panel>
     <Panel title="处理、证据与验证">
-      <Status loading={resource.loading} error={resource.error || error} />
+      <Status loading={resource.loading} error={resource.error} />
+      {error && <p className="state error" role="alert">操作未完成：{businessText(error)}。处理证据保留，请核对后重试。</p>}
       {message && <p className="inline-success" role="status">{message}</p>}
       <div className="research-filters"><label>选择处理项<select aria-label="选择偏差处理项" value={current?.id || ""} onChange={(e) => { setSelected(e.target.value); setEvidence(""); setComparison(""); setVerificationKind(resource.data?.records.find((i) => i.id === e.target.value)?.category === "model" ? "prediction_comparison" : "settlement_comparison"); }}><option value="">请选择处理项</option>{resource.data?.records.map((i) => <option key={i.id} value={i.id}>{businessText(i.name)} · {i.category_name} · {i.state_name}</option>)}</select></label></div>
       {!resource.loading && !resource.error && !resource.data?.records.length && <p className="research-empty">当前方案暂无偏差处理项。</p>}

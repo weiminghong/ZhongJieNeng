@@ -1,3 +1,4 @@
+import { requestKey } from "./requestKey";
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   Activity,
@@ -234,6 +235,7 @@ export default function Workbench() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const savedPredictionNotice = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [alpha, setAlpha] = useState(1);
   const [retrainAlpha, setRetrainAlpha] = useState(10);
@@ -284,7 +286,8 @@ export default function Workbench() {
     history.replaceState(null, "", "/" + selectionUrl(s));
     sessionStorage.setItem("cecep-workbench-selection", JSON.stringify(s));
     setError("");
-    setMessage("");
+    if (savedPredictionNotice.current === s.record) savedPredictionNotice.current = null;
+    else setMessage("");
     setAnswer("");
   }, [
     s.source,
@@ -391,8 +394,10 @@ export default function Workbench() {
       if (action === "analyze" && currentSlot.current !== capturedSlot) return;
       if (action === "predict") {
         const id = String(r.id || "");
-        if (id)
+        if (id) {
+          savedPredictionNotice.current = id;
           change({ type: "record", record: id, model: s.model, date: s.date });
+        }
       }
       if (action === "guard_power" && r.id) {
         change({ type: "model", model: String(r.id) });
@@ -619,6 +624,7 @@ export default function Workbench() {
                 ))}
               </select>
             </label>
+            {!["plan", "settlement", "review"].includes(s.tab) && <>
             <label>
               <span>预测任务</span>
               <select
@@ -634,6 +640,7 @@ export default function Workbench() {
                 ))}
               </select>
             </label>
+            </>}
             <label>
               <span>日期</span>
               <select
@@ -650,6 +657,7 @@ export default function Workbench() {
                 ))}
               </select>
             </label>
+            {!["analytics", "plan", "settlement", "review"].includes(s.tab) && <>
             <label>
               <span>模型</span>
               <select
@@ -667,6 +675,8 @@ export default function Workbench() {
                 ))}
               </select>
             </label>
+            </>}
+            {!["plan", "settlement", "review"].includes(s.tab) && <>
             <label>
               <span>查看方式</span>
               <select
@@ -686,6 +696,7 @@ export default function Workbench() {
                 <option value="replay">按时点查看</option>
               </select>
             </label>
+            </>}
             {s.mode === "replay" && (
               <label>
                 <span>截至</span>
@@ -717,12 +728,14 @@ export default function Workbench() {
               />
               {c && (
                 <>
+                  {!["plan", "settlement", "review"].includes(s.tab) && <>
                   <p className="unified-scope-notice">
                     {c.source.notice}{" "}
                     <span>
                       当前任务：{c.source.task_name} · {c.source.unit}
                     </span>
                   </p>
+                  </>}
                   {error && (
                     <p className="inline-error" role="alert">
                       {error}
@@ -994,6 +1007,9 @@ export default function Workbench() {
                               >
                                 运行所选模型
                               </button>
+                              {s.source === "market:shandong" && s.task === "pv_day_ahead_reference" && (
+                                <button disabled={!s.record} onClick={() => change({ type: "tab", tab: "plan" })}>用当前预测形成申报方案</button>
+                              )}
                             </div>
                             {!selectedModel?.can_predict && (
                               <p className="research-help">
@@ -1111,7 +1127,7 @@ export default function Workbench() {
                                 onClick={() =>
                                   void act(
                                     "train",
-                                    { alpha, key: crypto.randomUUID() },
+                                    { alpha, key: requestKey() },
                                     "训练已提交，可在运行监测查看实际进展",
                                   )
                                 }
@@ -1458,7 +1474,7 @@ export default function Workbench() {
                                                 feedback_id:
                                                   selectedCase.feedback_id,
                                                 alpha: usesOptimizationRecipe ? 1 : selectedRetrainAlpha,
-                                                key: crypto.randomUUID(),
+                                                key: requestKey(),
                                               },
                                               "已按复核提案提交重训",
                                             )
@@ -1680,7 +1696,7 @@ export default function Workbench() {
                                                 "retry",
                                                 {
                                                   job_id: j.id,
-                                                  key: crypto.randomUUID(),
+                                                  key: requestKey(),
                                                 },
                                                 "已创建重试任务",
                                               )
@@ -1863,7 +1879,7 @@ export default function Workbench() {
                     </>
                   )}
                   <footer className="energy-footer">
-                    当前范围：{c.source.name} · {c.date} · {c.source.task_name}{" "}
+                    当前范围：{c.source.name} · {c.date} · {["plan", "settlement", "review"].includes(s.tab) ? "方案与结算保存范围" : c.source.task_name}{" "}
                     · 检查时间 {stamp(c.checked_at)}
                   </footer>
                 </>
@@ -2194,6 +2210,7 @@ function HistoryAnalysis({
   contextVersion: string;
 }) {
   const [days, setDays] = useState(14);
+  const [linked, setLinked] = useState(false);
   const q = new URLSearchParams({
     source_key: s.source,
     task_id: s.task,
@@ -2238,6 +2255,8 @@ function HistoryAnalysis({
         <Status loading={r.loading} error={r.error} />
         {d && (
           <>
+            <label className="unified-confirm"><input type="checkbox" checked={linked} onChange={(event) => setLinked(event.target.checked)} />联动查看历史图表（悬浮与缩放）</label>
+            <p className="research-help">每张图默认独立悬浮、缩放和切换图例；仅打开此开关后同步查看。历史范围用于选择本组数据，不改变其他页面。</p>
             <p className="research-help">{d.notice}</p>
             <div className="research-two-grid">
               {(
@@ -2262,6 +2281,7 @@ function HistoryAnalysis({
                     compact
                     label={f.name}
                     group="unified-history"
+                    linked={linked}
                     option={() => ({
                       ...baseOption(),
                       xAxis: {
