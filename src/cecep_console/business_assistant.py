@@ -64,14 +64,14 @@ def evidence(business):
     names = {"bid_ratio":"申报系数", "fee_yuan_mwh":"每兆瓦时费用（元）", "min_ratio":"系数下限",
              "max_ratio":"系数上限", "ratio_step":"系数调整步长", "spread_threshold":"价差触发阈值（元/MWh）",
              "max_bid_mwh":"每小时申报上限（MWh）"}
-    readable = [f"{names[k]}{v}" for k, v in parameters.items() if k in names]
+    readable = [f"{names[k]}{'未设置' if v is None else v}" for k, v in parameters.items() if k in names]
     if readable:
         facts.append("保存的方案参数：" + "，".join(readable) + "。")
     if parameters.get("hourly_ratios") is not None:
         facts.append("该方案保存了逐小时申报系数，分析沿用这24项系数，不用单个默认系数替换。")
     facts.append("申报方式：" + ("按保存的价差预测及确定性规则调整系数。" if parameters.get("mode") == "spread_rule" else "按保存的手动申报系数。"))
     def number(value, unit):
-        return "未形成完整可计算结果" if value is None else f"{value:.3f}{unit}"
+        return "未形成完整可计算结果" if value is None else f"{value:,.2f}{unit}" if unit == "元" else f"{value:,.3f}{unit}"
     tools = [dict(name="核对业务对象快照", display_name="核对业务对象快照",
                   summary=f"已恢复{business['title']}的原方案、参数和预测关联。", output=business,
                   input=dict(business_object_id=business["id"], date=plan["date"], source_key=plan["source_key"]))]

@@ -36,7 +36,7 @@ export default function BusinessWorkflow({ selection: s, stage, revision, theme,
   const catalogParams = new URLSearchParams(base);
   if (record) catalogParams.set("record_id", record);
   const catalog = useResource<BusinessCatalog>("/api/v1/business/catalog?" + catalogParams, `${revision}:${localRevision}`, 10000);
-  const selected = catalog.data?.plans.find((p) => p.id === chosen) || catalog.data?.plans[0];
+  const selected = catalog.data?.plans.find((p) => p.id === chosen) || (stage === "plan" && record ? catalog.data?.plans.find((p) => p.record_id === record) : catalog.data?.plans[0]);
   const detail = useResource<{ plan: BusinessPlan; settlements: BusinessSettlement[]; notice: string }>(selected ? `/api/v1/business/plans/${encodeURIComponent(selected.id)}?` + base : null, `${revision}:${localRevision}`, 10000);
   const plan = detail.data?.plan;
   const snapshotParams = new URLSearchParams(base);

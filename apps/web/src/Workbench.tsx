@@ -479,7 +479,7 @@ export default function Workbench() {
           kind === "target"
             ? [
                 {
-                  name: "模型预测",
+                  name: c?.source.domain === "market" && !selectedModel?.trained ? "参考基线计算" : "模型预测",
                   type: "line",
                   symbol: "none",
                   data: c?.points.map((p) => p.predicted) || [],
@@ -933,6 +933,7 @@ export default function Workbench() {
                       {s.tab === "forecast" && (
                         <>
                           <Panel title="运行与查看预测">
+                            {c.source.domain === "market" && <p className="research-help">当前为历史数据按需推理，数据覆盖至 {c.metadata?.date_end || c.date}，尚未接入持续到达的场站实时输入。所选版本：{selectedModel?.trained ? "已训练模型，运行时加载真实权重计算" : "参考基线，按历史规则计算，不代表已训练模型效果"}。刷新页面只检查已有结果；点击“运行所选模型”才生成并保存一次新预测。</p>}
                             <div className="research-filters">
                               <label>
                                 已保存预测
@@ -1008,7 +1009,7 @@ export default function Workbench() {
                                 运行所选模型
                               </button>
                               {s.source === "market:shandong" && s.task === "pv_day_ahead_reference" && (
-                                <button disabled={!s.record} onClick={() => change({ type: "tab", tab: "plan" })}>用当前预测形成申报方案</button>
+                                <button disabled={!s.record} onClick={() => { sessionStorage.removeItem(`cecep-business-plan:${s.source}:${s.date}`); change({ type: "tab", tab: "plan" }); }}>用当前预测形成申报方案</button>
                               )}
                             </div>
                             {!selectedModel?.can_predict && (
